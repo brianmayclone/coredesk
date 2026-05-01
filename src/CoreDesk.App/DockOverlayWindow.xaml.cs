@@ -20,6 +20,7 @@ public sealed partial class DockOverlayWindow : Window
     public DockOverlayWindow()
     {
         InitializeComponent();
+        Root.DataContext = ViewModel;
         AppWindow.SetIcon("Assets/AppIcon.ico");
         ConfigureWindow();
 

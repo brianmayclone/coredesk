@@ -27,6 +27,7 @@ function Get-ReleaseArchitecture {
                 Runtime = $Runtime
                 Platform = "x64"
                 SetupArchitecture = "x64"
+                InnoArchitecture = "x64"
             }
         }
         "win-arm64" {
@@ -34,6 +35,7 @@ function Get-ReleaseArchitecture {
                 Runtime = $Runtime
                 Platform = "ARM64"
                 SetupArchitecture = "arm64"
+                InnoArchitecture = "arm64"
             }
         }
         default {
@@ -63,13 +65,28 @@ foreach ($runtime in $Runtimes) {
     $env:COREDESK_PUBLISH_DIR = $publishDir
     $env:COREDESK_SETUP_DIR = $setupDir
     $env:COREDESK_SETUP_ARCH = $architecture.SetupArchitecture
-    & $InnoSetupCompiler (Join-Path $repoRoot "installer\CoreDesk.iss")
+    $expectedInstallerPath = Join-Path $setupDir "CoreDesk-Setup-$Version-$($architecture.SetupArchitecture).exe"
+    $outputBaseFileName = [System.IO.Path]::GetFileNameWithoutExtension($expectedInstallerPath)
+    & $InnoSetupCompiler `
+        "/DAppVersion=$Version" `
+        "/DPublishDir=$publishDir" `
+        "/DOutputDir=$setupDir" `
+        "/DAppArchitecture=$($architecture.InnoArchitecture)" `
+        "/O$setupDir" `
+        "/F$outputBaseFileName" `
+        (Join-Path $repoRoot "installer\CoreDesk.iss")
 
-    $installer = Get-ChildItem -LiteralPath $setupDir -Filter "CoreDesk-Setup-$Version-$($architecture.SetupArchitecture).exe" | Select-Object -First 1
-    if (-not $installer) {
-        throw "Installer for $($architecture.Runtime) was not produced."
+    if ($LASTEXITCODE -ne 0) {
+        throw "Inno Setup failed for $($architecture.Runtime) with exit code $LASTEXITCODE."
     }
 
+    if (-not (Test-Path -LiteralPath $expectedInstallerPath)) {
+        $producedFiles = Get-ChildItem -LiteralPath $setupDir -Filter "*.exe" -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Name
+        throw "Installer for $($architecture.Runtime) was not produced at '$expectedInstallerPath'. Produced setup files: $($producedFiles -join ', ')"
+    }
+
+    $installer = Get-Item -LiteralPath $expectedInstallerPath
     $sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
     $installers += [pscustomobject]@{
         architecture = $architecture.SetupArchitecture

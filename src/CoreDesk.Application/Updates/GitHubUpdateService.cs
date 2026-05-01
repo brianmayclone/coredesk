@@ -2,6 +2,7 @@ using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -30,9 +31,10 @@ public sealed class GitHubUpdateService(
         var releaseNotes = root.TryGetProperty("body", out var body) ? body.GetString() : null;
 
         var manifest = await TryLoadManifestAsync(root, cancellationToken);
-        var installerUri = manifest?.InstallerUri ?? FindAsset(root, ".exe");
-        var installerSha256 = manifest?.InstallerSha256;
-        var installerSize = manifest?.InstallerSizeBytes;
+        var installer = manifest?.FindInstallerForCurrentArchitecture();
+        var installerUri = installer?.InstallerUri ?? manifest?.InstallerUri ?? FindAsset(root, GetInstallerAssetSuffix()) ?? FindAsset(root, ".exe");
+        var installerSha256 = installer?.InstallerSha256 ?? manifest?.InstallerSha256;
+        var installerSize = installer?.InstallerSizeBytes ?? manifest?.InstallerSizeBytes;
 
         return new UpdateInfo(
             CurrentVersion,
@@ -162,6 +164,17 @@ public sealed class GitHubUpdateService(
         return ParseVersion(informational.Split('+')[0]);
     }
 
+    private static string GetInstallerAssetSuffix()
+    {
+        return RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.Arm64 => "-arm64.exe",
+            Architecture.X64 => "-x64.exe",
+            Architecture.X86 => "-x86.exe",
+            _ => ".exe"
+        };
+    }
+
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient();
@@ -178,6 +191,31 @@ public sealed class GitHubUpdateService(
     private sealed record UpdateManifest(
         string Version,
         string? ReleaseNotes,
+        Uri? InstallerUri,
+        string? InstallerSha256,
+        long? InstallerSizeBytes,
+        IReadOnlyList<UpdateManifestInstaller>? Installers)
+    {
+        public UpdateManifestInstaller? FindInstallerForCurrentArchitecture()
+        {
+            var architecture = RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.Arm64 => "arm64",
+                Architecture.X64 => "x64",
+                Architecture.X86 => "x86",
+                _ => null
+            };
+
+            return string.IsNullOrWhiteSpace(architecture)
+                ? null
+                : Installers?.FirstOrDefault(installer =>
+                    installer.Architecture.Equals(architecture, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private sealed record UpdateManifestInstaller(
+        string Architecture,
+        string Runtime,
         Uri? InstallerUri,
         string? InstallerSha256,
         long? InstallerSizeBytes);

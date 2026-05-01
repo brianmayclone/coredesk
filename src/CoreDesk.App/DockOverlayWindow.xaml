@@ -80,10 +80,10 @@
                                             <RowDefinition Height="3" />
                                         </Grid.RowDefinitions>
                                         <Grid Width="58" Height="58">
-                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
-                                            <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
+                                            <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Stretch="Uniform" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}}" />
                                         </Grid>
-                                        <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" Visibility="{x:Bind IsRunning, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}" />
+                                        <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
                                     </Grid>
                                 </Button>
                             </DataTemplate>
@@ -117,8 +117,8 @@
                                             <RowDefinition Height="3" />
                                         </Grid.RowDefinitions>
                                         <Grid Width="58" Height="58">
-                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
-                                            <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
+                                            <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Stretch="Uniform" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}}" />
                                         </Grid>
                                         <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" />
                                     </Grid>

@@ -1,19 +1,27 @@
 #define AppName "CoreDesk"
 #define AppPublisher "CoreDesk"
 #define AppExeName "CoreDesk.App.exe"
+#ifndef AppVersion
 #define AppVersion GetEnv("COREDESK_VERSION")
+#endif
 #if AppVersion == ""
 #define AppVersion "0.1.0"
 #endif
+#ifndef PublishDir
 #define PublishDir GetEnv("COREDESK_PUBLISH_DIR")
+#endif
 #if PublishDir == ""
 #define PublishDir "..\artifacts\publish\win-x64"
 #endif
+#ifndef OutputDir
 #define OutputDir GetEnv("COREDESK_SETUP_DIR")
+#endif
 #if OutputDir == ""
 #define OutputDir "..\artifacts\setup"
 #endif
+#ifndef AppArchitecture
 #define AppArchitecture GetEnv("COREDESK_SETUP_ARCH")
+#endif
 #if AppArchitecture == ""
 #define AppArchitecture "x64"
 #endif

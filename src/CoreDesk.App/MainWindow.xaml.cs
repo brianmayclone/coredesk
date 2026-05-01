@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using System.Runtime.InteropServices;
-using Windows.Graphics;
 
 namespace CoreDesk_App;
 
