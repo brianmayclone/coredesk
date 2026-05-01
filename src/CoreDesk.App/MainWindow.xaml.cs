@@ -14,7 +14,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        EnableTransparentColorKey();
+        EnableTransparentColorKey(WinRT.Interop.WindowNative.GetWindowHandle(this));
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
         Content.KeyDown += OnKeyDown;
@@ -102,9 +102,8 @@ public sealed partial class MainWindow : Window
         SetWindowPos(App.WindowHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
-    private static void EnableTransparentColorKey()
+    private static void EnableTransparentColorKey(nint handle)
     {
-        var handle = App.WindowHandle;
         var extendedStyle = GetWindowLongPtr(handle, GWL_EXSTYLE);
         SetWindowLongPtr(handle, GWL_EXSTYLE, extendedStyle | WS_EX_LAYERED);
         SetLayeredWindowAttributes(handle, TransparentColorKey, 255, LWA_COLORKEY);

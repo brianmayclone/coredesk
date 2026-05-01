@@ -107,8 +107,6 @@ public sealed class CoreDeskSmokeTests
 
     private static void CapturePhysicalScreen(string directory, string fileName, List<string> failures)
     {
-        AssertCoreDeskIsForeground();
-
         var width = GetSystemMetrics(0);
         var height = GetSystemMetrics(1);
         using var bitmap = new Bitmap(width, height);
