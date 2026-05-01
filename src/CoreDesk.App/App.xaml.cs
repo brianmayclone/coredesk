@@ -7,6 +7,8 @@ public partial class App : Application
 {
     public static Window Window { get; private set; } = null!;
 
+    public static DockOverlayWindow? DockWindow { get; private set; }
+
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
 
     public static nint WindowHandle =>
@@ -48,6 +50,8 @@ public partial class App : Application
             Services.SystemIntegration.CommandRequested += OnSystemCommandRequested;
             Window = new MainWindow();
             Window.Closed += (_, _) => RestoreSystemShell();
+            DockWindow = new DockOverlayWindow();
+            Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             WireHardwareModeSwitching();
             Window.Activate();
@@ -105,22 +109,16 @@ public partial class App : Application
             switch (command)
             {
                 case SystemIntegrationCommand.OpenShell:
-                    Window.Activate();
-                    Services.ShellMode.EnterTouchMode();
+                    ShowMainShell();
                     break;
                 case SystemIntegrationCommand.EnterTouchMode:
-                    Window.Activate();
                     Services.ShellMode.EnterTouchMode();
                     break;
                 case SystemIntegrationCommand.EnterDesktopMode:
                     Services.ShellMode.EnterDesktopMode();
                     break;
                 case SystemIntegrationCommand.OpenSettings:
-                    Window.Activate();
-                    if (Window is MainWindow mainWindow)
-                    {
-                        mainWindow.OpenSettings();
-                    }
+                    ShowMainShell(openSettings: true);
                     break;
                 case SystemIntegrationCommand.EnterSafeMode:
                     Services.SystemIntegration.SetTaskbarVisible(true);
@@ -128,8 +126,60 @@ public partial class App : Application
                     break;
                 case SystemIntegrationCommand.Exit:
                     RestoreSystemShell();
+                    DockWindow?.Close();
                     Window.Close();
                     break;
+            }
+        });
+    }
+
+    public static void ShowMainShell(bool openDrawer = false, bool openSettings = false, bool openControlCenter = false, bool openTaskSwitcher = false)
+    {
+        if (Window is not MainWindow mainWindow)
+        {
+            return;
+        }
+
+        Window.AppWindow.Show(true);
+        Window.Activate();
+        DockWindow?.HideDock();
+        mainWindow.UseFullScreenShell();
+        if (openDrawer)
+        {
+            mainWindow.OpenDrawer();
+        }
+        else if (openSettings)
+        {
+            mainWindow.OpenSettings();
+        }
+        else if (openControlCenter)
+        {
+            mainWindow.OpenControlCenter();
+        }
+        else if (openTaskSwitcher)
+        {
+            mainWindow.OpenTaskSwitcher();
+        }
+    }
+
+    private static void OnShellModeChanged(object? sender, ShellMode mode)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (mode == ShellMode.Desktop)
+            {
+                Window.AppWindow.Hide();
+                DockWindow?.ShowDock();
+                Services.SystemIntegration.SetTaskbarVisible(false);
+                return;
+            }
+
+            DockWindow?.HideDock();
+            Window.AppWindow.Show(true);
+            Window.Activate();
+            if (Window is MainWindow mainWindow)
+            {
+                mainWindow.UseFullScreenShell();
             }
         });
     }
@@ -139,6 +189,7 @@ public partial class App : Application
         try
         {
             Services?.SystemIntegration.SetTaskbarVisible(true);
+            DockWindow?.Close();
             Services?.SystemIntegration.Dispose();
         }
         catch

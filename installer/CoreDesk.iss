@@ -13,6 +13,10 @@
 #if OutputDir == ""
 #define OutputDir "..\artifacts\setup"
 #endif
+#define AppArchitecture GetEnv("COREDESK_SETUP_ARCH")
+#if AppArchitecture == ""
+#define AppArchitecture "x64"
+#endif
 
 [Setup]
 AppId={{D14A9D07-5C9D-4C2F-A933-5D5998E0E7DB}
@@ -23,11 +27,11 @@ DefaultDirName={autopf}\CoreDesk
 DefaultGroupName=CoreDesk
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=CoreDesk-Setup-{#AppVersion}-x64
+OutputBaseFilename=CoreDesk-Setup-{#AppVersion}-{#AppArchitecture}
 Compression=lzma2
 SolidCompression=yes
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed={#AppArchitecture}
+ArchitecturesInstallIn64BitMode={#AppArchitecture}
 WizardStyle=modern
 SetupIconFile=..\src\CoreDesk.App\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\{#AppExeName}

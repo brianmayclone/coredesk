@@ -70,4 +70,5 @@ jobs:
           make_latest: true
           files: |
             artifacts/setup/CoreDesk-Setup-${{ steps.version.outputs.version }}-x64.exe
+            artifacts/setup/CoreDesk-Setup-${{ steps.version.outputs.version }}-arm64.exe
             artifacts/setup/coredesk-update.json

@@ -123,17 +123,32 @@ public sealed partial class MainPage : Page
         ViewModel.OpenSettingsCommand.Execute(null);
     }
 
+    public void OpenDrawer()
+    {
+        ViewModel.OpenDrawerCommand.Execute(null);
+    }
+
+    public void OpenControlCenter()
+    {
+        ViewModel.OpenControlCenterCommand.Execute(null);
+    }
+
+    public void OpenTaskSwitcher()
+    {
+        ViewModel.OpenTaskSwitcherCommand.Execute(null);
+    }
+
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ViewModel.IsControlCenterOpen) or nameof(ViewModel.IsTaskSwitcherOpen) or nameof(ViewModel.IsDrawerOpen) or nameof(ViewModel.IsSettingsOpen))
         {
             if (ViewModel.IsControlCenterOpen || ViewModel.IsTaskSwitcherOpen || ViewModel.IsDrawerOpen || ViewModel.IsSettingsOpen)
             {
-                ExpandDesktopOverlay();
+                App.DockWindow?.HideDock();
             }
             else
             {
-                CollapseDesktopOverlayIfIdle();
+                App.DockWindow?.ShowDock();
             }
         }
 
@@ -157,7 +172,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        ExpandDesktopOverlay();
+        App.DockWindow?.ShowDock();
         ViewModel.ShowDockCommand.Execute(null);
         ScheduleDockAutoHide();
     }
@@ -172,7 +187,7 @@ public sealed partial class MainPage : Page
         _isBottomGestureActive = true;
         _bottomGestureStartY = e.GetCurrentPoint(Root).Position.Y;
         BottomGestureZone.CapturePointer(e.Pointer);
-        ExpandDesktopOverlay();
+        App.DockWindow?.ShowDock();
         ViewModel.ShowDockCommand.Execute(null);
         _dockAutoHide.Stop();
     }
@@ -216,7 +231,7 @@ public sealed partial class MainPage : Page
         var crossedMidpoint = currentY < Root.ActualHeight * 0.52;
         if (crossedMidpoint)
         {
-            ExpandDesktopOverlay();
+            App.DockWindow?.HideDock();
             ViewModel.OpenTaskSwitcherCommand.Execute(null);
             return;
         }
@@ -236,14 +251,6 @@ public sealed partial class MainPage : Page
         _dockAutoHide.Start();
     }
 
-    private static void ExpandDesktopOverlay()
-    {
-        if (App.Window is MainWindow mainWindow)
-        {
-            mainWindow.ExpandOverlay();
-        }
-    }
-
     private void CollapseDesktopOverlayIfIdle()
     {
         if (!ViewModel.IsDesktopMode || ViewModel.IsControlCenterOpen || ViewModel.IsTaskSwitcherOpen || ViewModel.IsDrawerOpen || ViewModel.IsSettingsOpen)
@@ -251,10 +258,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        if (App.Window is MainWindow mainWindow)
-        {
-            mainWindow.CollapseOverlayToDock();
-        }
+        App.DockWindow?.ShowDock();
     }
 
     private async void OnAppRefreshTick(object? sender, object e)

@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="CoreDesk_App.DockOverlayWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:viewModels="using:CoreDesk.Application.ViewModels"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="CoreDesk Dock"
+    mc:Ignorable="d">
+
+    <Grid
+        x:Name="Root"
+        Background="#01000000"
+        PointerEntered="OnRootPointerEntered"
+        PointerExited="OnRootPointerExited"
+        PointerPressed="OnRootPointerPressed"
+        PointerMoved="OnRootPointerMoved"
+        PointerReleased="OnRootPointerReleased"
+        PointerCanceled="OnRootPointerCanceled">
+        <Border
+            x:Name="GestureHandle"
+            Width="74"
+            Height="5"
+            Margin="0,0,0,116"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Bottom"
+            Background="#99FFFFFF"
+            CornerRadius="2.5" />
+
+        <Border
+            x:Name="LiquidDock"
+            Margin="10,0,10,12"
+            Padding="18,14"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Bottom"
+            BorderBrush="#8FFFFFFF"
+            BorderThickness="1"
+            CornerRadius="38">
+            <Border.Background>
+                <AcrylicBrush
+                    TintColor="#DCEAF0"
+                    TintOpacity="0.22"
+                    TintLuminosityOpacity="0.34"
+                    FallbackColor="#D8455862" />
+            </Border.Background>
+            <Grid>
+                <Border Opacity="0.55" CornerRadius="36">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#9FFFFFFF" Offset="0" />
+                            <GradientStop Color="#20FFFFFF" Offset="0.42" />
+                            <GradientStop Color="#26111820" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.PinnedDockItems, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="10" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="viewModels:DockItemViewModel">
+                                <Button
+                                    Width="{Binding DataContext.DockButtonSize, ElementName=Root, Mode=OneWay}"
+                                    Height="{Binding DataContext.DockButtonSize, ElementName=Root, Mode=OneWay}"
+                                    Padding="0"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    Click="OnDockItemClick"
+                                    PointerEntered="OnDockButtonPointerEntered"
+                                    PointerExited="OnDockButtonPointerExited"
+                                    Tag="{x:Bind}">
+                                    <Grid RowSpacing="4">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="3" />
+                                        </Grid.RowDefinitions>
+                                        <Grid Width="58" Height="58">
+                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
+                                            <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                        </Grid>
+                                        <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" Visibility="{x:Bind IsRunning, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Border Width="1" Height="48" Margin="5" Background="#7DFFFFFF" CornerRadius="0.5" />
+
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.RunningDockItems, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="10" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="viewModels:DockItemViewModel">
+                                <Button
+                                    Width="{Binding DataContext.DockButtonSize, ElementName=Root, Mode=OneWay}"
+                                    Height="{Binding DataContext.DockButtonSize, ElementName=Root, Mode=OneWay}"
+                                    Padding="0"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    Click="OnDockItemClick"
+                                    PointerEntered="OnDockButtonPointerEntered"
+                                    PointerExited="OnDockButtonPointerExited"
+                                    Tag="{x:Bind}">
+                                    <Grid RowSpacing="4">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="3" />
+                                        </Grid.RowDefinitions>
+                                        <Grid Width="58" Height="58">
+                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
+                                            <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                        </Grid>
+                                        <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnDrawerClick" AutomationProperties.Name="Open App Drawer">
+                        <FontIcon Glyph="&#xE71D;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnSettingsClick" AutomationProperties.Name="Open Settings">
+                        <FontIcon Glyph="&#xE713;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnControlCenterClick" AutomationProperties.Name="Open Control Center">
+                        <FontIcon Glyph="&#xE700;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Command="{x:Bind ViewModel.ToggleDesktopCommand}" AutomationProperties.Name="Toggle Desktop Mode">
+                        <FontIcon Glyph="&#xE7F4;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

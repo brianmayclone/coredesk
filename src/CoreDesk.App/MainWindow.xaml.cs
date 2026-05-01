@@ -8,30 +8,15 @@ namespace CoreDesk_App;
 public sealed partial class MainWindow : Window
 {
     private MainPage? _mainPage;
-    private bool _isDesktopOverlay;
-
     public MainWindow()
     {
         InitializeComponent();
 
-        EnableTransparentColorKey(WinRT.Interop.WindowNative.GetWindowHandle(this));
-        ExtendGlassIntoClientArea(WinRT.Interop.WindowNative.GetWindowHandle(this));
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
         Content.KeyDown += OnKeyDown;
         RootFrame.Navigated += (_, _) => _mainPage = RootFrame.Content as MainPage;
         RootFrame.Navigate(typeof(MainPage));
-        App.Services.ShellMode.ModeChanged += (_, mode) =>
-        {
-            if (mode == CoreDesk.Abstractions.Models.ShellMode.Desktop)
-            {
-                UseDesktopDockOverlay();
-            }
-            else
-            {
-                UseFullScreenShell();
-            }
-        };
         Activated += (_, _) => KeepTopMost();
     }
 
@@ -52,50 +37,26 @@ public sealed partial class MainWindow : Window
 
     public void OpenSettings()
     {
-        UseFullScreenShell();
         _mainPage?.OpenSettings();
     }
 
-    public void ExpandOverlay()
+    public void OpenDrawer()
     {
-        if (_isDesktopOverlay)
-        {
-            AppWindow.MoveAndResize(new RectInt32(0, 0, GetSystemMetrics(0), GetSystemMetrics(1)));
-            KeepTopMost();
-        }
+        _mainPage?.OpenDrawer();
     }
 
-    public void CollapseOverlayToDock()
+    public void OpenControlCenter()
     {
-        if (_isDesktopOverlay)
-        {
-            var screenWidth = GetSystemMetrics(0);
-            var screenHeight = GetSystemMetrics(1);
-            var height = Math.Min(156, Math.Max(128, screenHeight / 14));
-            var width = Math.Min(1480, Math.Max(1080, screenWidth / 3));
-            AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 12, width, height));
-            KeepTopMost();
-        }
+        _mainPage?.OpenControlCenter();
     }
 
-    private void UseDesktopDockOverlay()
+    public void OpenTaskSwitcher()
     {
-        _isDesktopOverlay = true;
-        AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
-        {
-            presenter.SetBorderAndTitleBar(false, false);
-            presenter.IsResizable = false;
-            presenter.IsMaximizable = false;
-            presenter.IsMinimizable = false;
-        }
-
-        CollapseOverlayToDock();
+        _mainPage?.OpenTaskSwitcher();
     }
 
-    private void UseFullScreenShell()
+    public void UseFullScreenShell()
     {
-        _isDesktopOverlay = false;
         AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
         KeepTopMost();
     }
@@ -103,19 +64,6 @@ public sealed partial class MainWindow : Window
     private static void KeepTopMost()
     {
         SetWindowPos(App.WindowHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
-
-    private static void EnableTransparentColorKey(nint handle)
-    {
-        var extendedStyle = GetWindowLongPtr(handle, GWL_EXSTYLE);
-        SetWindowLongPtr(handle, GWL_EXSTYLE, extendedStyle | WS_EX_LAYERED);
-        SetLayeredWindowAttributes(handle, TransparentColorKey, 255, LWA_COLORKEY);
-    }
-
-    private static void ExtendGlassIntoClientArea(nint handle)
-    {
-        var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
-        _ = DwmExtendFrameIntoClientArea(handle, ref margins);
     }
 
     private static bool IsControlAltPressed()
@@ -127,38 +75,11 @@ public sealed partial class MainWindow : Window
     }
 
     private static readonly nint HWND_TOPMOST = new(-1);
-    private const int GWL_EXSTYLE = -20;
-    private const int WS_EX_LAYERED = 0x00080000;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
-    private const uint LWA_COLORKEY = 0x00000001;
-    private const uint TransparentColorKey = 0x00000000;
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
-    private static extern nint GetWindowLongPtr(nint hWnd, int index);
-
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
-    private static extern nint SetWindowLongPtr(nint hWnd, int index, nint newLong);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetLayeredWindowAttributes(nint hwnd, uint crKey, byte bAlpha, uint dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int nIndex);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmExtendFrameIntoClientArea(nint hWnd, ref Margins pMarInset);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Margins
-    {
-        public int Left;
-        public int Right;
-        public int Top;
-        public int Bottom;
-    }
 }
