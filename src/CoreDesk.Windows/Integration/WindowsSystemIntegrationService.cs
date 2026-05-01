@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
@@ -11,6 +12,7 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private const int SW_SHOW = 5;
 
     private NotifyIcon? _trayIcon;
+    private bool _disposed;
 
     public event EventHandler<SystemIntegrationCommand>? CommandRequested;
 
@@ -21,10 +23,10 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 
     public void SetTaskbarVisible(bool visible)
     {
-        var taskbarHandle = FindWindow("Shell_TrayWnd", null);
-        if (taskbarHandle != IntPtr.Zero)
+        foreach (var taskbarHandle in EnumerateTaskbarWindows())
         {
             ShowWindow(taskbarHandle, visible ? SW_SHOW : SW_HIDE);
+            EnableWindow(taskbarHandle, visible);
         }
     }
 
@@ -63,6 +65,12 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         SetTaskbarVisible(true);
         _trayIcon?.Dispose();
     }
@@ -72,9 +80,41 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         CommandRequested?.Invoke(this, command);
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+    private static IReadOnlyList<IntPtr> EnumerateTaskbarWindows()
+    {
+        var handles = new List<IntPtr>();
+        EnumWindows((handle, _) =>
+        {
+            var className = GetClassName(handle);
+            if (className is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd")
+            {
+                handles.Add(handle);
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return handles;
+    }
+
+    private static string GetClassName(IntPtr handle)
+    {
+        var builder = new StringBuilder(256);
+        var length = GetClassName(handle, builder, builder.Capacity);
+        return length <= 0 ? string.Empty : builder.ToString(0, length);
+    }
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnableWindow(IntPtr hWnd, bool bEnable);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 }

@@ -17,11 +17,12 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => RestoreSystemShell();
         UnhandledException += (_, args) =>
         {
             try
             {
-                Services?.SystemIntegration.SetTaskbarVisible(true);
+                RestoreSystemShell();
                 Services?.Diagnostics.Error(args.Exception, "Unhandled exception.");
             }
             catch
@@ -46,6 +47,7 @@ public partial class App : Application
             Services.SystemIntegration.Initialize();
             Services.SystemIntegration.CommandRequested += OnSystemCommandRequested;
             Window = new MainWindow();
+            Window.Closed += (_, _) => RestoreSystemShell();
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             WireHardwareModeSwitching();
             Window.Activate();
@@ -125,11 +127,24 @@ public partial class App : Application
                     Window.Activate();
                     break;
                 case SystemIntegrationCommand.Exit:
-                    Services.SystemIntegration.SetTaskbarVisible(true);
+                    RestoreSystemShell();
                     Window.Close();
                     break;
             }
         });
+    }
+
+    private static void RestoreSystemShell()
+    {
+        try
+        {
+            Services?.SystemIntegration.SetTaskbarVisible(true);
+            Services?.SystemIntegration.Dispose();
+        }
+        catch
+        {
+            // Process shutdown must not be blocked by shell restoration cleanup.
+        }
     }
 
     private static void WriteFallbackCrashLog(Exception exception)

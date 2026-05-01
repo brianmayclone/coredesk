@@ -39,6 +39,7 @@ public sealed partial class MainWindow : Window
         if (e.Key == Windows.System.VirtualKey.Escape)
         {
             App.Services.SystemIntegration.SetTaskbarVisible(true);
+            App.Services.SystemIntegration.Dispose();
             Close();
         }
 

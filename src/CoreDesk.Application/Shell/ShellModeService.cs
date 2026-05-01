@@ -29,8 +29,7 @@ public sealed class ShellModeService(ISystemIntegrationService systemIntegration
         }
 
         CurrentMode = ShellMode.Desktop;
-        systemIntegration.SetTaskbarVisible(true);
+        systemIntegration.SetTaskbarVisible(false);
         ModeChanged?.Invoke(this, CurrentMode);
     }
 }
-
