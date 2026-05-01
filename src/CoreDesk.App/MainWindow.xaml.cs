@@ -71,7 +71,8 @@ public sealed partial class MainWindow : Window
             var screenWidth = GetSystemMetrics(0);
             var screenHeight = GetSystemMetrics(1);
             var height = Math.Min(156, Math.Max(128, screenHeight / 14));
-            AppWindow.MoveAndResize(new RectInt32(0, screenHeight - height, screenWidth, height));
+            var width = Math.Min(1480, Math.Max(1080, screenWidth / 3));
+            AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 12, width, height));
             KeepTopMost();
         }
     }
@@ -125,7 +126,7 @@ public sealed partial class MainWindow : Window
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint LWA_COLORKEY = 0x00000001;
-    private const uint TransparentColorKey = 0x00030201;
+    private const uint TransparentColorKey = 0x00000000;
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);

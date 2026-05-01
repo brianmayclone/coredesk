@@ -13,7 +13,7 @@
     <Grid
         x:Name="Root"
         AutomationProperties.Name="CoreDesk Homescreen"
-        Background="#FF010203"
+        Background="#FF000000"
         SizeChanged="OnRootSizeChanged">
         <Grid Visibility="{Binding IsTouchMode, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.Background>
@@ -704,7 +704,7 @@
             x:Name="BottomGestureZone"
             Height="42"
             VerticalAlignment="Bottom"
-            Background="#FF010203"
+            Background="#FF000000"
             Visibility="{Binding IsDesktopMode, Converter={StaticResource BoolToVisibilityConverter}}"
             PointerEntered="OnBottomGesturePointerEntered"
             PointerPressed="OnBottomGesturePointerPressed"
