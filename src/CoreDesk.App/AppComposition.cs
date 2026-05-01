@@ -6,6 +6,7 @@ using CoreDesk.Application.Search;
 using CoreDesk.Application.Shell;
 using CoreDesk.Application.SystemStatus;
 using CoreDesk.Application.Testing;
+using CoreDesk.Application.Updates;
 using CoreDesk.Application.ViewModels;
 using CoreDesk.Application.Widgets;
 using CoreDesk.Persistence;
@@ -33,6 +34,7 @@ public sealed class AppComposition : IDisposable
         AppDiscovery = useMocks ? new MockAppDiscoveryService() : new StartMenuAppDiscoveryService();
         AppLauncher = useMocks ? new MockAppLauncher(Diagnostics) : new WindowsAppLauncher();
         RunningApps = useMocks ? new MockRunningAppService() : new WindowsRunningAppService();
+        Updates = useMocks ? new MockUpdateService() : new GitHubUpdateService(GetUpdateRepository(), Diagnostics);
         HardwareMonitor = useMocks ? new MockHardwareMonitor() : new PollingHardwareMonitor();
         PowerStatus = useMocks ? new MockPowerStatusService() : new WindowsPowerStatusService();
         NetworkStatus = useMocks ? new MockNetworkStatusService() : new WindowsNetworkStatusService();
@@ -61,6 +63,8 @@ public sealed class AppComposition : IDisposable
 
     public IRunningAppService RunningApps { get; }
 
+    public IUpdateService Updates { get; }
+
     public IHardwareMonitor HardwareMonitor { get; }
 
     public IPowerStatusService PowerStatus { get; }
@@ -83,7 +87,7 @@ public sealed class AppComposition : IDisposable
 
     public ShellViewModel CreateShellViewModel()
     {
-        var settings = new SettingsViewModel(ConfigurationStore, Autostart, Diagnostics);
+        var settings = new SettingsViewModel(ConfigurationStore, Autostart, Updates, Diagnostics);
         return new ShellViewModel(
             Localization,
             AppDiscovery,
@@ -122,5 +126,11 @@ public sealed class AppComposition : IDisposable
         }
 
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CoreDesk");
+    }
+
+    private static string GetUpdateRepository()
+    {
+        return Environment.GetEnvironmentVariable("COREDESK_UPDATE_REPOSITORY")
+            ?? "brianmayclone/coredesk";
     }
 }

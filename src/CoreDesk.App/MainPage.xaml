@@ -582,6 +582,7 @@
                         <ListViewItem Content="Appearance" />
                         <ListViewItem Content="Behavior" />
                         <ListViewItem Content="Apps" />
+                        <ListViewItem Content="Updates" />
                         <ListViewItem Content="Gestures" />
                         <ListViewItem Content="System" />
                     </ListView>
@@ -594,6 +595,54 @@
                             <ComboBox Header="Language" ItemsSource="{Binding Settings.Languages}" SelectedItem="{Binding Settings.Language, Mode=TwoWay}" MinWidth="220" />
                             <ComboBox Header="Theme" ItemsSource="{Binding Settings.Themes}" SelectedItem="{Binding Settings.Theme, Mode=TwoWay}" MinWidth="220" />
                             <ComboBox Header="Dock position" ItemsSource="{Binding Settings.DockPositions}" SelectedItem="{Binding Settings.DockPosition, Mode=TwoWay}" MinWidth="220" />
+                            <Border Padding="22" Background="#EFFFFFFF" BorderBrush="#66FFFFFF" BorderThickness="1" CornerRadius="24">
+                                <StackPanel Spacing="14">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Updates" FontSize="22" FontWeight="SemiBold" Foreground="#FF111820" />
+                                            <TextBlock Text="{Binding Settings.UpdateStatus}" Foreground="#AA111820" FontSize="14" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="1" Glyph="&#xE895;" FontSize="28" Foreground="#FF0078D4" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Installed" Foreground="#99111820" FontSize="12" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Settings.InstalledVersion}" Foreground="#FF111820" FontSize="18" FontWeight="SemiBold" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="Latest" Foreground="#99111820" FontSize="12" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Settings.LatestVersion}" Foreground="#FF111820" FontSize="18" FontWeight="SemiBold" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <ProgressBar
+                                        Minimum="0"
+                                        Maximum="100"
+                                        Value="{Binding Settings.UpdateProgress, Mode=OneWay}"
+                                        IsIndeterminate="{Binding Settings.IsCheckingForUpdates, Mode=OneWay}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Command="{Binding Settings.CheckForUpdatesCommand}" MinHeight="48" Padding="16,0" AutomationProperties.Name="Check for Updates">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE895;" />
+                                                <TextBlock Text="Check" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{Binding Settings.InstallUpdateCommand}" IsEnabled="{Binding Settings.CanInstallUpdate, Mode=OneWay}" MinHeight="48" Padding="16,0" AutomationProperties.Name="Install Update">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE896;" />
+                                                <TextBlock Text="Install update" />
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                             <Button Command="{Binding Settings.SaveCommand}" AutomationProperties.Name="Save Settings" MinHeight="54" Padding="18,0">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <FontIcon Glyph="&#xE74E;" />
