@@ -1,0 +1,518 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="CoreDesk_App.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:CoreDesk.Abstractions.Models"
+    xmlns:viewModels="using:CoreDesk.Application.ViewModels"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:CoreDesk_App"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid
+        x:Name="Root"
+        AutomationProperties.Name="CoreDesk Homescreen"
+        SizeChanged="OnRootSizeChanged">
+        <Grid.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#20394F" Offset="0" />
+                <GradientStop Color="#67869C" Offset="0.48" />
+                <GradientStop Color="#C08B6A" Offset="1" />
+            </LinearGradientBrush>
+        </Grid.Background>
+
+        <Image
+            x:Name="WallpaperImage"
+            Stretch="UniformToFill"
+            Opacity="0.94" />
+
+        <Grid>
+            <Grid.Background>
+                <RadialGradientBrush Center="0.58,0.35" RadiusX="0.92" RadiusY="0.92">
+                    <GradientStop Color="#44FFFFFF" Offset="0" />
+                    <GradientStop Color="#26344B61" Offset="0.62" />
+                    <GradientStop Color="#66101A24" Offset="1" />
+                </RadialGradientBrush>
+            </Grid.Background>
+        </Grid>
+
+        <Border Background="#26000000" />
+
+        <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid ColumnSpacing="18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock
+                    Text="{x:Bind ViewModel.AppTitle}"
+                    FontSize="32"
+                    FontWeight="SemiBold"
+                    Foreground="White" />
+
+                <Border
+                    Grid.Column="1"
+                    Padding="16,8"
+                    Background="#4D111820"
+                    BorderBrush="#22FFFFFF"
+                    BorderThickness="1"
+                    CornerRadius="20">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <TextBlock Text="{x:Bind ViewModel.CurrentTime, Mode=OneWay}" Foreground="White" FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Bind ViewModel.BatteryLabel, Mode=OneWay}" Foreground="White" />
+                        <TextBlock Text="{x:Bind ViewModel.NetworkLabel, Mode=OneWay}" Foreground="White" />
+                        <TextBlock Text="{x:Bind ViewModel.KeyboardLabel, Mode=OneWay}" Foreground="White" />
+                        <TextBlock Text="{x:Bind ViewModel.ModeLabel, Mode=OneWay}" Foreground="White" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <ItemsControl
+                Grid.Row="1"
+                Margin="0,28,0,8"
+                ItemsSource="{x:Bind ViewModel.Widgets, Mode=OneWay}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="18" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="viewModels:HomeWidgetViewModel">
+                        <Border
+                            Width="380"
+                            Height="132"
+                            Padding="24,20"
+                            Background="#D9FFFFFF"
+                            BorderBrush="#44FFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="30">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="{x:Bind Title}" Foreground="#B0212B34" FontSize="15" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind PrimaryText}" Foreground="#FF111820" FontSize="30" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind SecondaryText}" Foreground="#CC111820" FontSize="15" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <GridView
+                x:Name="HomeGrid"
+                Grid.Row="2"
+                Margin="0,22,0,24"
+                IsItemClickEnabled="True"
+                ItemClick="OnAppItemClick"
+                ItemsSource="{x:Bind ViewModel.HomeTiles, Mode=OneWay}"
+                SelectionMode="None">
+                <GridView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="8" />
+                    </ItemsPanelTemplate>
+                </GridView.ItemsPanel>
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="viewModels:HomeTileViewModel">
+                        <StackPanel
+                            Width="150"
+                            Height="174"
+                            Padding="8"
+                            Spacing="10">
+                            <Border
+                                Width="108"
+                                Height="108"
+                                HorizontalAlignment="Center"
+                                Background="{Binding BackgroundKey, Converter={StaticResource AppNameToBrushConverter}}"
+                                CornerRadius="24"
+                                Visibility="{Binding IsAppTile, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Grid>
+                                    <FontIcon
+                                        Glyph="&#xECAA;"
+                                        FontSize="42"
+                                        Foreground="#EFFFFFFF" />
+                                    <Image
+                                        Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}"
+                                        Margin="19"
+                                        Stretch="Uniform" />
+                                </Grid>
+                            </Border>
+                            <Border
+                                Width="108"
+                                Height="108"
+                                HorizontalAlignment="Center"
+                                Background="#DCF7F8FA"
+                                CornerRadius="24"
+                                Visibility="{Binding IsFolderTile, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Grid Padding="15">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition />
+                                        <RowDefinition />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition />
+                                        <ColumnDefinition />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Background="#CC5E8F7C" CornerRadius="8" Margin="2" />
+                                    <Border Grid.Column="1" Background="#CC2E536A" CornerRadius="8" Margin="2" />
+                                    <Border Grid.Row="1" Background="#CCB6C7D4" CornerRadius="8" Margin="2" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind AppCount}" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#FF111820" />
+                                </Grid>
+                            </Border>
+                            <TextBlock
+                                Text="{x:Bind DisplayName, Mode=OneWay}"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap"
+                                MaxLines="2"
+                                Foreground="White"
+                                FontWeight="SemiBold"
+                                FontSize="14" />
+                        </StackPanel>
+                    </DataTemplate>
+                </GridView.ItemTemplate>
+            </GridView>
+
+            <StackPanel Grid.Row="3" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="9" Margin="0,0,0,13">
+                <Border Width="30" Height="8" Background="#FFFFFFFF" CornerRadius="4" />
+                <Border Width="8" Height="8" Background="#99FFFFFF" CornerRadius="4" />
+                <Border Width="8" Height="8" Background="#99FFFFFF" CornerRadius="4" />
+            </StackPanel>
+
+            <Border
+                Grid.Row="4"
+                HorizontalAlignment="Center"
+                Padding="20,16"
+                Background="#D7FFFFFF"
+                BorderBrush="#66FFFFFF"
+                BorderThickness="1"
+                CornerRadius="38">
+                <StackPanel Orientation="Horizontal" Spacing="14">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.DockApps, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="14" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:AppEntry">
+                                <Button
+                                    Width="72"
+                                    Height="72"
+                                    Padding="0"
+                                    Background="#66FFFFFF"
+                                    Click="OnDockAppClick"
+                                    Tag="{x:Bind}">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xECAA;" FontSize="30" Foreground="#FF26323C" />
+                                        <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Margin="12" Stretch="Uniform" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Command="{x:Bind ViewModel.OpenDrawerCommand}" AutomationProperties.Name="Open App Drawer">
+                        <FontIcon Glyph="&#xE71D;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Command="{x:Bind ViewModel.OpenSettingsCommand}" AutomationProperties.Name="Open Settings">
+                        <FontIcon Glyph="&#xE713;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Command="{x:Bind ViewModel.OpenControlCenterCommand}" AutomationProperties.Name="Open Control Center">
+                        <FontIcon Glyph="&#xE700;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                    <Button Width="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Height="{x:Bind ViewModel.DockButtonSize, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleDesktopCommand}" AutomationProperties.Name="Toggle Desktop Mode">
+                        <FontIcon Glyph="&#xE7F4;" FontSize="{x:Bind ViewModel.DockIconSize, Mode=OneWay}" />
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid
+            Background="#F219222C"
+            AutomationProperties.Name="CoreDesk App Drawer"
+            Visibility="{Binding IsDrawerOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}" RowSpacing="24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Padding="20,10" Background="#F2FFFFFF" CornerRadius="24">
+                        <TextBox
+                            PlaceholderText="{x:Bind ViewModel.SearchPlaceholder}"
+                            Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            FontSize="22"
+                            BorderThickness="0"
+                            Background="Transparent"
+                            Foreground="#FF101820"
+                            PlaceholderForeground="#99101820"
+                            MinHeight="58" />
+                    </Border>
+                    <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseDrawerCommand}" Width="64" Height="64" AutomationProperties.Name="Close App Drawer">
+                        <FontIcon Glyph="&#xE711;" />
+                    </Button>
+                </Grid>
+
+                <GridView
+                    Grid.Row="1"
+                    IsItemClickEnabled="True"
+                    ItemClick="OnAppItemClick"
+                    ItemsSource="{x:Bind ViewModel.DrawerApps, Mode=OneWay}"
+                    SelectionMode="None">
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="models:AppEntry">
+                            <StackPanel
+                                Width="168"
+                                Height="168"
+                                Padding="8"
+                                Spacing="9">
+                                <Border
+                                    Width="104"
+                                    Height="104"
+                                    HorizontalAlignment="Center"
+                                    Background="{Binding DisplayName, Converter={StaticResource AppNameToBrushConverter}}"
+                                    CornerRadius="22">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xECAA;" FontSize="42" Foreground="#EFFFFFFF" />
+                                        <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Margin="18" Stretch="Uniform" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="{x:Bind DisplayName}" TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" Foreground="White" FontSize="14" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                </GridView>
+            </Grid>
+        </Grid>
+
+        <Grid
+            Background="#AA101820"
+            AutomationProperties.Name="CoreDesk Folder"
+            Visibility="{Binding IsFolderOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Border
+                Width="680"
+                MinHeight="460"
+                Padding="32"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#F2FFFFFF"
+                BorderBrush="#66FFFFFF"
+                BorderThickness="1"
+                CornerRadius="38">
+                <StackPanel Spacing="22">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding OpenFolderTile.Name}" FontSize="30" FontWeight="SemiBold" Foreground="#FF111820" />
+                        <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseFolderCommand}" AutomationProperties.Name="Close Folder">
+                            <FontIcon Glyph="&#xE711;" />
+                        </Button>
+                    </Grid>
+                    <GridView
+                        MaxHeight="420"
+                        IsItemClickEnabled="True"
+                        ItemClick="OnAppItemClick"
+                        ItemsSource="{x:Bind ViewModel.OpenFolderApps, Mode=OneWay}"
+                        SelectionMode="None">
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="models:AppEntry">
+                                <StackPanel Width="136" Height="146" Padding="8" Spacing="8">
+                                    <Border
+                                        Width="86"
+                                        Height="86"
+                                        HorizontalAlignment="Center"
+                                        Background="{Binding DisplayName, Converter={StaticResource AppNameToBrushConverter}}"
+                                        CornerRadius="20">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xECAA;" FontSize="34" Foreground="#EFFFFFFF" />
+                                            <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Margin="16" Stretch="Uniform" />
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock Text="{x:Bind DisplayName}" TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" Foreground="#FF111820" FontSize="13" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid
+            Background="#D91F3342"
+            AutomationProperties.Name="CoreDesk Control Center"
+            Visibility="{Binding IsControlCenterOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}" RowSpacing="28">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{x:Bind ViewModel.ControlCenterLabel}" FontSize="38" FontWeight="SemiBold" Foreground="White" />
+                    <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseControlCenterCommand}" Width="64" Height="64" AutomationProperties.Name="Close Control Center">
+                        <FontIcon Glyph="&#xE711;" />
+                    </Button>
+                </Grid>
+
+                <Grid Grid.Row="1" ColumnSpacing="20" RowSpacing="20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.2*" />
+                        <ColumnDefinition Width="1.2*" />
+                        <ColumnDefinition Width="1*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Brightness" Foreground="White" FontSize="18" />
+                        <Slider Minimum="0" Maximum="100" Value="70" AutomationProperties.Name="Brightness" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="8">
+                        <TextBlock Text="Volume" Foreground="White" FontSize="18" />
+                        <Slider Minimum="0" Maximum="100" Value="50" AutomationProperties.Name="Volume" />
+                    </StackPanel>
+                    <Button Grid.Column="2" MinHeight="92" Command="{x:Bind ViewModel.ToggleDesktopCommand}" AutomationProperties.Name="Desktop quick action">
+                        <StackPanel Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE7F4;" />
+                            <TextBlock Text="{x:Bind ViewModel.DesktopLabel}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Row="1" MinHeight="92" AutomationProperties.Name="Wi-Fi quick action">
+                        <StackPanel Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE701;" />
+                            <TextBlock Text="Wi-Fi" />
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Row="1" Grid.Column="1" MinHeight="92" AutomationProperties.Name="Bluetooth quick action">
+                        <StackPanel Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE702;" />
+                            <TextBlock Text="Bluetooth" />
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Row="1" Grid.Column="2" MinHeight="92" AutomationProperties.Name="Touch keyboard quick action">
+                        <StackPanel Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE765;" />
+                            <TextBlock Text="Keyboard" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <Grid
+            RequestedTheme="Light"
+            AutomationProperties.Name="CoreDesk Settings"
+            Visibility="{Binding IsSettingsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#FFF3F7FB" Offset="0" />
+                    <GradientStop Color="#FFE8F3FA" Offset="0.45" />
+                    <GradientStop Color="#FFF8EEF4" Offset="1" />
+                </LinearGradientBrush>
+            </Grid.Background>
+            <Border
+                Width="520"
+                HorizontalAlignment="Right"
+                Background="#220073C8" />
+            <Border
+                Width="9"
+                HorizontalAlignment="Left"
+                Background="#FF0078D4" />
+            <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}" RowSpacing="26">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{x:Bind ViewModel.SettingsLabel}" FontSize="38" FontWeight="SemiBold" Foreground="#FF111820" />
+                        <TextBlock Text="TouchShell behavior, appearance, apps, gestures and diagnostics" FontSize="16" Foreground="#AA111820" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseSettingsCommand}" Width="64" Height="64" AutomationProperties.Name="Close Settings">
+                        <FontIcon Glyph="&#xE711;" />
+                    </Button>
+                </Grid>
+                <Grid Grid.Row="1" ColumnSpacing="26">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="320" />
+                        <ColumnDefinition Width="760" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ListView SelectedIndex="0" Background="Transparent">
+                        <ListViewItem Content="General" />
+                        <ListViewItem Content="Appearance" />
+                        <ListViewItem Content="Behavior" />
+                        <ListViewItem Content="Apps" />
+                        <ListViewItem Content="Gestures" />
+                        <ListViewItem Content="System" />
+                    </ListView>
+                    <ScrollViewer Grid.Column="1">
+                        <StackPanel Spacing="18" MaxWidth="860" HorizontalAlignment="Left">
+                            <ToggleSwitch Header="Autostart" IsOn="{Binding Settings.AutostartEnabled, Mode=TwoWay}" />
+                            <ToggleSwitch Header="Hide taskbar in touch mode" IsOn="{Binding Settings.HideTaskbarInTouchMode, Mode=TwoWay}" />
+                            <ToggleSwitch Header="Auto switch when keyboard changes" IsOn="{Binding Settings.AutoSwitchOnKeyboard, Mode=TwoWay}" />
+                            <ToggleSwitch Header="Reduce animations" IsOn="{Binding Settings.ReduceAnimations, Mode=TwoWay}" />
+                            <ComboBox Header="Language" ItemsSource="{Binding Settings.Languages}" SelectedItem="{Binding Settings.Language, Mode=TwoWay}" MinWidth="220" />
+                            <ComboBox Header="Theme" ItemsSource="{Binding Settings.Themes}" SelectedItem="{Binding Settings.Theme, Mode=TwoWay}" MinWidth="220" />
+                            <ComboBox Header="Dock position" ItemsSource="{Binding Settings.DockPositions}" SelectedItem="{Binding Settings.DockPosition, Mode=TwoWay}" MinWidth="220" />
+                            <Button Command="{Binding Settings.SaveCommand}" AutomationProperties.Name="Save Settings" MinHeight="54" Padding="18,0">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE74E;" />
+                                    <TextBlock Text="Save" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
+                    <StackPanel Grid.Column="2" Width="480" HorizontalAlignment="Right" Spacing="18">
+                        <Border Padding="24" Background="#EFFFFFFF" BorderBrush="#66FFFFFF" BorderThickness="1" CornerRadius="28">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Shell status" FontSize="15" FontWeight="SemiBold" Foreground="#99111820" />
+                                <TextBlock Text="{x:Bind ViewModel.ModeLabel, Mode=OneWay}" FontSize="34" FontWeight="SemiBold" Foreground="#FF111820" />
+                                <TextBlock Text="{x:Bind ViewModel.AppCountLabel, Mode=OneWay}" FontSize="17" Foreground="#AA111820" />
+                            </StackPanel>
+                        </Border>
+                        <Border Padding="24" Background="#EFFFFFFF" BorderBrush="#66FFFFFF" BorderThickness="1" CornerRadius="28">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Display" FontSize="15" FontWeight="SemiBold" Foreground="#99111820" />
+                                <TextBlock Text="{x:Bind ViewModel.DisplaySummary, Mode=OneWay}" FontSize="28" FontWeight="SemiBold" Foreground="#FF111820" />
+                                <TextBlock Text="{x:Bind ViewModel.DpiSummary, Mode=OneWay}" FontSize="17" Foreground="#AA111820" />
+                            </StackPanel>
+                        </Border>
+                        <Border Padding="24" Background="#EFFFFFFF" BorderBrush="#66FFFFFF" BorderThickness="1" CornerRadius="28">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="System" FontSize="15" FontWeight="SemiBold" Foreground="#99111820" />
+                                <TextBlock Text="{x:Bind ViewModel.BatteryLabel, Mode=OneWay}" FontSize="22" FontWeight="SemiBold" Foreground="#FF111820" />
+                                <TextBlock Text="{x:Bind ViewModel.NetworkLabel, Mode=OneWay}" FontSize="17" Foreground="#AA111820" />
+                                <TextBlock Text="{x:Bind ViewModel.KeyboardLabel, Mode=OneWay}" FontSize="17" Foreground="#AA111820" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

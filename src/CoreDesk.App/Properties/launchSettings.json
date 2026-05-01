@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "CoreDesk.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "CoreDesk.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
