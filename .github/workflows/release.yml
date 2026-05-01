@@ -57,7 +57,7 @@ jobs:
           git add VERSION
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip release]"
           git tag "v${{ steps.version.outputs.version }}"
-          git push
+          git push origin HEAD:${{ github.ref_name }}
           git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Publish GitHub release

@@ -1,5 +1,7 @@
 <Project>
   <PropertyGroup>
+    <CoreDeskVersionFile>$(MSBuildThisFileDirectory)VERSION</CoreDeskVersionFile>
+    <Version Condition="'$(Version)' == '' and Exists('$(CoreDeskVersionFile)')">$([System.IO.File]::ReadAllText('$(CoreDeskVersionFile)').Trim())</Version>
     <Version Condition="'$(Version)' == ''">0.1.0</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
