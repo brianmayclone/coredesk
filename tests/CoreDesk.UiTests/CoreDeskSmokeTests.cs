@@ -58,6 +58,7 @@ public sealed class CoreDeskSmokeTests
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "03-settings.png", screenshotFailures);
 
+            ClickByName(window, "Close Settings");
             ClickByName(window, "Open Control Center");
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "04-control-center.png", screenshotFailures);
