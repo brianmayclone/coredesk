@@ -15,4 +15,8 @@ public sealed record HomeTileViewModel(AppEntry? App, FolderTileViewModel? Folde
     public string? IconPath => App?.IconPath;
 
     public int AppCount => Folder?.AppCount ?? 0;
+
+    public bool HasFolderApps => AppCount > 0;
+
+    public IReadOnlyList<AppEntry> FolderPreviewApps => Folder?.PreviewApps ?? [];
 }

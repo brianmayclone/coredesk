@@ -8,10 +8,12 @@ namespace CoreDesk.Windows.AppDiscovery;
 
 public sealed class WindowsRunningAppService : IRunningAppService
 {
+    private const int SW_RESTORE = 9;
+
     public Task<IReadOnlyList<RunningAppEntry>> GetRunningAppsAsync(CancellationToken cancellationToken = default)
     {
         var apps = new Dictionary<uint, RunningAppEntry>();
-        EnumWindows((handle, _) =>
+        EnumWindows((handle, lParam) =>
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -52,6 +54,87 @@ public sealed class WindowsRunningAppService : IRunningAppService
         return Task.FromResult<IReadOnlyList<RunningAppEntry>>([.. apps.Values.OrderBy(app => app.ProcessName)]);
     }
 
+    public Task<bool> TryActivateAsync(AppEntry app, CancellationToken cancellationToken = default)
+    {
+        var activated = false;
+        EnumWindows((handle, lParam) =>
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            if (!IsWindowVisible(handle) || GetWindowTextLength(handle) == 0)
+            {
+                return true;
+            }
+
+            _ = GetWindowThreadProcessId(handle, out var processId);
+            if (processId == 0)
+            {
+                return true;
+            }
+
+            try
+            {
+                using var process = Process.GetProcessById((int)processId);
+                var running = new RunningAppEntry(process.ProcessName, GetExecutablePath(process), GetTitle(handle));
+                if (!Matches(app, running))
+                {
+                    return true;
+                }
+
+                ShowWindow(handle, SW_RESTORE);
+                SetForegroundWindow(handle);
+                activated = true;
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }, IntPtr.Zero);
+
+        return Task.FromResult(activated);
+    }
+
+    private static bool Matches(AppEntry app, RunningAppEntry running)
+    {
+        if (!string.IsNullOrWhiteSpace(app.AppUserModelId)
+            && app.AppUserModelId.Equals(running.AppUserModelId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (MatchesExecutableName(app.ExecutablePath, running.ProcessName)
+            || MatchesExecutableName(app.ExecutablePath, running.ExecutablePath))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(running.WindowTitle)
+            && running.WindowTitle.Contains(app.DisplayName, StringComparison.CurrentCultureIgnoreCase))
+        {
+            return true;
+        }
+
+        return app.DisplayName.Contains(running.ProcessName, StringComparison.CurrentCultureIgnoreCase)
+            || running.ProcessName.Contains(app.DisplayName, StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private static bool MatchesExecutableName(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        var leftName = Path.GetFileNameWithoutExtension(left);
+        var rightName = Path.GetFileNameWithoutExtension(right);
+        return !string.IsNullOrWhiteSpace(leftName)
+            && leftName.Equals(rightName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string GetTitle(IntPtr handle)
     {
         var builder = new StringBuilder(GetWindowTextLength(handle) + 1);
@@ -78,6 +161,12 @@ public sealed class WindowsRunningAppService : IRunningAppService
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);

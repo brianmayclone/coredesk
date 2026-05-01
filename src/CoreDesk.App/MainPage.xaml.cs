@@ -83,6 +83,12 @@ public sealed partial class MainPage : Page
 
     private async void OnDockAppClick(object sender, RoutedEventArgs e)
     {
+        if (sender is Button { Tag: DockItemViewModel item })
+        {
+            await ViewModel.OpenDockItemCommand.ExecuteAsync(item);
+            return;
+        }
+
         if (sender is Button { Tag: AppEntry app })
         {
             await ViewModel.LaunchAppCommand.ExecuteAsync(app);

@@ -8,5 +8,5 @@ public sealed record AppEntry(
     string? Arguments = null,
     string? AppUserModelId = null,
     string? IconPath = null,
+    string? LaunchPath = null,
     bool IsHidden = false);
-

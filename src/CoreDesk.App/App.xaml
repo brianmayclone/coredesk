@@ -13,6 +13,8 @@
             </ResourceDictionary.MergedDictionaries>
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
             <converters:IconPathToImageSourceConverter x:Key="IconPathToImageSourceConverter" />
+            <converters:IconPathToBrushConverter x:Key="IconPathToBrushConverter" />
+            <converters:IconPathToVisibilityConverter x:Key="IconPathToVisibilityConverter" />
             <converters:AppNameToBrushConverter x:Key="AppNameToBrushConverter" />
             <converters:DoubleToUniformThicknessConverter x:Key="DoubleToUniformThicknessConverter" />
         </ResourceDictionary>

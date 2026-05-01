@@ -46,11 +46,13 @@ CoreDesk must be testable by automation and by manual Surface acceptance runs. A
 
 ### UI Tests
 
-FlaUI UIA3 runs CoreDesk with:
+FlaUI UIA3 visual screenshot runs use real Windows app discovery and wallpaper while disabling desktop manipulation:
 
 ```text
---diagnostics --mock-hardware --language en
+--diagnostics --safe-mode --language en
 ```
+
+Do not use `--mock-hardware` for visual acceptance screenshots. Mock mode is only for deterministic service/integration coverage where fake apps, fake status and fake wallpaper are the point of the test.
 
 Required screenshot scenarios:
 
@@ -62,13 +64,13 @@ Required screenshot scenarios:
 - Folder overlay.
 - Touch/Desktop mode switch.
 
-UI tests must not run against real taskbar hiding. Mock system integration must be active.
+UI tests must not run against real taskbar hiding. Use `--safe-mode` unless a test explicitly verifies mock system integration.
 
 Current implementation status:
 
 - `CoreDesk.UiTests` builds and is included in the solution.
 - The default UI test run is safe and does not launch the desktop app unless `COREDESK_RUN_UI_TESTS=1`.
-- The opt-in run launches CoreDesk in diagnostics/mock mode and writes initial screenshot artifacts.
+- The opt-in run launches CoreDesk in diagnostics safe mode and writes screenshot artifacts from the real desktop state.
 - Remaining work: stabilize native WinUI window readiness so FlaUI can reliably wait for shell controls before continuing through AppDrawer, Settings and Control Center captures.
 
 ## Manual Acceptance

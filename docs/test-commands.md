@@ -16,13 +16,16 @@ Use these commands from the repository root.
 
 ## UI Tests With Screenshots
 
-UI tests are opt-in because they start the desktop app. They run CoreDesk in diagnostics/mock mode, so real taskbar hiding is disabled.
+UI tests are opt-in because they start the desktop app. Visual screenshot runs use diagnostics safe mode so real wallpaper and icons are visible while taskbar hiding and hardware auto-switching stay disabled.
 
 ```powershell
 $env:COREDESK_RUN_UI_TESTS='1'
-& 'C:\Program Files\dotnet\dotnet.exe' build src\CoreDesk.App\CoreDesk.App.csproj
+$env:COREDESK_APP_ARGS='--diagnostics --safe-mode --language en'
+& 'C:\Program Files\dotnet\dotnet.exe' build src\CoreDesk.App\CoreDesk.App.csproj -p:Platform=x64
 & 'C:\Program Files\dotnet\dotnet.exe' test tests\CoreDesk.UiTests\CoreDesk.UiTests.csproj
 ```
+
+Use `--mock-hardware` only for deterministic mock-service checks, not for visual acceptance screenshots.
 
 Screenshots are written to:
 

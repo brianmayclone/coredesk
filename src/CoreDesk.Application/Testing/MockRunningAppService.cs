@@ -5,6 +5,8 @@ namespace CoreDesk.Application.Testing;
 
 public sealed class MockRunningAppService : IRunningAppService
 {
+    public AppEntry? LastActivatedApp { get; private set; }
+
     public Task<IReadOnlyList<RunningAppEntry>> GetRunningAppsAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<RunningAppEntry> apps =
@@ -14,5 +16,11 @@ public sealed class MockRunningAppService : IRunningAppService
         ];
 
         return Task.FromResult(apps);
+    }
+
+    public Task<bool> TryActivateAsync(AppEntry app, CancellationToken cancellationToken = default)
+    {
+        LastActivatedApp = app;
+        return Task.FromResult(true);
     }
 }

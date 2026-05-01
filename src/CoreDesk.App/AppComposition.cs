@@ -32,6 +32,7 @@ public sealed class AppComposition : IDisposable
             : new WindowsSystemIntegrationService();
         AppDiscovery = useMocks ? new MockAppDiscoveryService() : new StartMenuAppDiscoveryService();
         AppLauncher = useMocks ? new MockAppLauncher(Diagnostics) : new WindowsAppLauncher();
+        RunningApps = useMocks ? new MockRunningAppService() : new WindowsRunningAppService();
         HardwareMonitor = useMocks ? new MockHardwareMonitor() : new PollingHardwareMonitor();
         PowerStatus = useMocks ? new MockPowerStatusService() : new WindowsPowerStatusService();
         NetworkStatus = useMocks ? new MockNetworkStatusService() : new WindowsNetworkStatusService();
@@ -57,6 +58,8 @@ public sealed class AppComposition : IDisposable
     public IAppDiscoveryService AppDiscovery { get; }
 
     public IAppLauncher AppLauncher { get; }
+
+    public IRunningAppService RunningApps { get; }
 
     public IHardwareMonitor HardwareMonitor { get; }
 
@@ -85,6 +88,7 @@ public sealed class AppComposition : IDisposable
             Localization,
             AppDiscovery,
             AppLauncher,
+            RunningApps,
             ConfigurationStore,
             ShellMode,
             AppSearch,

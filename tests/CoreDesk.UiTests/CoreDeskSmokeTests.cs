@@ -26,7 +26,7 @@ public sealed class CoreDeskSmokeTests
         var launchArguments = Environment.GetEnvironmentVariable("COREDESK_APP_ARGS");
         if (string.IsNullOrWhiteSpace(launchArguments))
         {
-            launchArguments = "--diagnostics --mock-hardware --reset-config --language en";
+            launchArguments = "--diagnostics --safe-mode --language en";
         }
 
         File.WriteAllText(Path.Combine(screenshotDirectory, "run-info.txt"), launchArguments);

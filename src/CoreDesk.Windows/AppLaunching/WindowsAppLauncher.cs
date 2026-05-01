@@ -19,12 +19,13 @@ public sealed class WindowsAppLauncher : IAppLauncher
             return Task.CompletedTask;
         }
 
-        if (string.IsNullOrWhiteSpace(app.ExecutablePath))
+        var launchPath = app.LaunchPath ?? app.ExecutablePath;
+        if (string.IsNullOrWhiteSpace(launchPath))
         {
             return Task.CompletedTask;
         }
 
-        Process.Start(new ProcessStartInfo(app.ExecutablePath)
+        Process.Start(new ProcessStartInfo(launchPath)
         {
             Arguments = app.Arguments ?? string.Empty,
             UseShellExecute = true
@@ -33,4 +34,3 @@ public sealed class WindowsAppLauncher : IAppLauncher
         return Task.CompletedTask;
     }
 }
-

@@ -38,8 +38,15 @@ public sealed class StartMenuAppDiscoveryService : IAppDiscoveryService
                 }
 
                 var id = StableId(shortcut);
-                var iconPath = _iconCache.GetOrCreateIconPath(id, null, shortcut);
-                entries.TryAdd(id, new AppEntry(id, CleanDisplayName(name), AppKind.Win32, ExecutablePath: shortcut, IconPath: iconPath));
+                var resolved = WindowsShortcutResolver.TryResolve(shortcut);
+                var iconPath = _iconCache.GetOrCreateIconPath(id, resolved.TargetPath, shortcut);
+                entries.TryAdd(id, new AppEntry(
+                    id,
+                    CleanDisplayName(name),
+                    AppKind.Win32,
+                    ExecutablePath: resolved.TargetPath ?? shortcut,
+                    IconPath: iconPath,
+                    LaunchPath: shortcut));
             }
         }
 

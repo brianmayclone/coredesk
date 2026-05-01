@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 using CoreDesk.Application.AppClassification;
+using CoreDesk.Application.Dock;
 using CoreDesk.Application.Layout;
 
 namespace CoreDesk.Application.ViewModels;
@@ -12,6 +13,7 @@ public sealed partial class ShellViewModel(
     ILocalizationService text,
     IAppDiscoveryService appDiscovery,
     IAppLauncher appLauncher,
+    IRunningAppService runningAppService,
     IConfigurationStore configurationStore,
     IShellModeService shellModeService,
     IAppSearchService appSearch,
@@ -38,6 +40,10 @@ public sealed partial class ShellViewModel(
     public ObservableCollection<HomeWidgetViewModel> Widgets { get; } = [];
 
     public ObservableCollection<AppEntry> DockApps { get; } = [];
+
+    public ObservableCollection<DockItemViewModel> PinnedDockItems { get; } = [];
+
+    public ObservableCollection<DockItemViewModel> RunningDockItems { get; } = [];
 
     public ObservableCollection<AppEntry> DrawerApps { get; } = [];
 
@@ -306,13 +312,34 @@ public sealed partial class ShellViewModel(
 
         await appLauncher.LaunchAsync(app);
         diagnostics.Info($"Launched app: {app.Id}");
+        await RefreshRunningAppsAsync();
         shellModeService.EnterDesktopMode();
+    }
+
+    [RelayCommand]
+    private async Task OpenDockItemAsync(DockItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        if (item.IsRunning && await runningAppService.TryActivateAsync(item.App))
+        {
+            diagnostics.Info($"Activated running app: {item.App.Id}");
+            shellModeService.EnterDesktopMode();
+            await RefreshRunningAppsAsync();
+            return;
+        }
+
+        await LaunchAppAsync(item.App);
     }
 
     public void Tick()
     {
         CurrentTime = DateTime.Now.ToString("HH:mm");
         RefreshStatus();
+        _ = RefreshRunningAppsAsync();
     }
 
     public async Task RefreshInstalledAppsAsync(CancellationToken cancellationToken = default)
@@ -322,12 +349,14 @@ public sealed partial class ShellViewModel(
         var newIds = discovered.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (oldIds.SetEquals(newIds))
         {
+            await RefreshRunningAppsAsync(cancellationToken);
             return;
         }
 
         _allApps = discovered;
         _defaultLayoutBuilder.EnsureDefaultLayout(_layout, _allApps);
         await RefreshAppCollectionsAsync(cancellationToken);
+        await RefreshRunningAppsAsync(cancellationToken);
         OnPropertyChanged(nameof(AppCountLabel));
         diagnostics.Info($"App index refreshed. Apps: {_allApps.Count}");
     }
@@ -349,6 +378,8 @@ public sealed partial class ShellViewModel(
         HomeTiles.Clear();
         Widgets.Clear();
         DockApps.Clear();
+        PinnedDockItems.Clear();
+        RunningDockItems.Clear();
 
         foreach (var widget in _layout.Widgets)
         {
@@ -359,7 +390,7 @@ public sealed partial class ShellViewModel(
 
         foreach (var folder in _layout.Folders)
         {
-            var folderTile = new FolderTileViewModel(folder, folder.AppIds.Count);
+            var folderTile = new FolderTileViewModel(folder, folder.AppIds.Count, AppsByIds(folder.AppIds).Take(4).ToList());
             HomeFolders.Add(folderTile);
         }
 
@@ -371,6 +402,7 @@ public sealed partial class ShellViewModel(
         }
 
         RefreshDrawer();
+        await RefreshRunningAppsAsync(cancellationToken);
     }
 
     private void ApplyAdaptiveSizing()
@@ -444,6 +476,29 @@ public sealed partial class ShellViewModel(
         foreach (var app in apps)
         {
             DrawerApps.Add(app);
+        }
+    }
+
+    private async Task RefreshRunningAppsAsync(CancellationToken cancellationToken = default)
+    {
+        var runningApps = await runningAppService.GetRunningAppsAsync(cancellationToken);
+        var pinnedApps = AppsByIds(_layout.DockAppIds).Take(8).ToList();
+        var runningIds = DockRunningAppMatcher.MatchRunningAppIds(runningApps, _allApps, pinnedApps);
+        var pinnedIds = pinnedApps.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        PinnedDockItems.Clear();
+        RunningDockItems.Clear();
+        DockApps.Clear();
+
+        foreach (var app in pinnedApps)
+        {
+            PinnedDockItems.Add(new DockItemViewModel(app, runningIds.Contains(app.Id)));
+            DockApps.Add(app);
+        }
+
+        foreach (var app in _allApps.Where(app => runningIds.Contains(app.Id) && !pinnedIds.Contains(app.Id)).Take(6))
+        {
+            RunningDockItems.Add(new DockItemViewModel(app, true));
         }
     }
 
