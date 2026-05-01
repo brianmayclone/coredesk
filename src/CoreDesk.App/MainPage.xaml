@@ -240,10 +240,9 @@
                                         </Grid>
                                         <Border
                                             Grid.Row="1"
-                                            Width="3"
+                                            Width="18"
                                             Height="3"
                                             HorizontalAlignment="Center"
-                                            Margin="0,1,0,0"
                                             Background="#FF0A84FF"
                                             CornerRadius="1.5"
                                             Visibility="{x:Bind IsRunning, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}" />
@@ -283,10 +282,9 @@
                                         </Grid>
                                         <Border
                                             Grid.Row="1"
-                                            Width="3"
+                                            Width="18"
                                             Height="3"
                                             HorizontalAlignment="Center"
-                                            Margin="0,1,0,0"
                                             Background="#FF0A84FF"
                                             CornerRadius="1.5" />
                                     </Grid>

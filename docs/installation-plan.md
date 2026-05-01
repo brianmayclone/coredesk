@@ -39,3 +39,11 @@ CoreDesk must not assume developer runtimes are already installed on the target 
 - Start minimized/Desktop Mode.
 - Surface default configuration.
 - Safe Mode shortcut.
+
+## Implemented Release Flow
+
+- `VERSION` is the source for `X.Y.Z`; CI bumps only `Z`.
+- `installer/CoreDesk.iss` builds the initial x64 Inno Setup installer.
+- `scripts/build-release.ps1` publishes the self-contained app, builds the installer, computes SHA-256 and writes `coredesk-update.json`.
+- `.github/workflows/release.yml` runs on `main`, bumps `VERSION`, builds/tests, tags `vX.Y.Z`, creates a normal GitHub release and uploads installer plus update manifest.
+- The Settings app checks the latest GitHub release, compares it with the installed assembly version and starts the verified installer when the user accepts the update.
