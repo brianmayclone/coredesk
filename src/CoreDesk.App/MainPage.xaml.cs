@@ -2,7 +2,9 @@ using Microsoft.UI.Xaml.Controls;
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System.ComponentModel;
 
 namespace CoreDesk_App;
 
@@ -10,6 +12,9 @@ public sealed partial class MainPage : Page
 {
     private readonly DispatcherTimer _clock = new();
     private readonly DispatcherTimer _appRefresh = new();
+    private readonly DispatcherTimer _dockAutoHide = new();
+    private bool _isBottomGestureActive;
+    private double _bottomGestureStartY;
 
     public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
 
@@ -26,6 +31,16 @@ public sealed partial class MainPage : Page
         _appRefresh.Interval = TimeSpan.FromSeconds(30);
         _appRefresh.Tick += OnAppRefreshTick;
         _appRefresh.Start();
+
+        _dockAutoHide.Interval = TimeSpan.FromSeconds(4);
+        _dockAutoHide.Tick += (_, _) =>
+        {
+            _dockAutoHide.Stop();
+            ViewModel.HideDockCommand.Execute(null);
+            CollapseDesktopOverlayIfIdle();
+        };
+
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -106,6 +121,140 @@ public sealed partial class MainPage : Page
     public void OpenSettings()
     {
         ViewModel.OpenSettingsCommand.Execute(null);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ViewModel.IsControlCenterOpen) or nameof(ViewModel.IsTaskSwitcherOpen) or nameof(ViewModel.IsDrawerOpen) or nameof(ViewModel.IsSettingsOpen))
+        {
+            if (ViewModel.IsControlCenterOpen || ViewModel.IsTaskSwitcherOpen || ViewModel.IsDrawerOpen || ViewModel.IsSettingsOpen)
+            {
+                ExpandDesktopOverlay();
+            }
+            else
+            {
+                CollapseDesktopOverlayIfIdle();
+            }
+        }
+
+        if (e.PropertyName == nameof(ViewModel.CurrentMode))
+        {
+            if (ViewModel.IsDesktopMode)
+            {
+                ScheduleDockAutoHide();
+            }
+            else
+            {
+                _dockAutoHide.Stop();
+            }
+        }
+    }
+
+    private void OnBottomGesturePointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (!ViewModel.IsDesktopMode)
+        {
+            return;
+        }
+
+        ExpandDesktopOverlay();
+        ViewModel.ShowDockCommand.Execute(null);
+        ScheduleDockAutoHide();
+    }
+
+    private void OnBottomGesturePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!ViewModel.IsDesktopMode)
+        {
+            return;
+        }
+
+        _isBottomGestureActive = true;
+        _bottomGestureStartY = e.GetCurrentPoint(Root).Position.Y;
+        BottomGestureZone.CapturePointer(e.Pointer);
+        ExpandDesktopOverlay();
+        ViewModel.ShowDockCommand.Execute(null);
+        _dockAutoHide.Stop();
+    }
+
+    private void OnBottomGesturePointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isBottomGestureActive || !ViewModel.IsDesktopMode)
+        {
+            return;
+        }
+
+        var currentY = e.GetCurrentPoint(Root).Position.Y;
+        if (_bottomGestureStartY - currentY > Root.ActualHeight * 0.16)
+        {
+            ViewModel.ShowDockCommand.Execute(null);
+        }
+    }
+
+    private void OnBottomGesturePointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        FinishBottomGesture(e);
+    }
+
+    private void OnBottomGesturePointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        _isBottomGestureActive = false;
+        BottomGestureZone.ReleasePointerCapture(e.Pointer);
+        ScheduleDockAutoHide();
+    }
+
+    private void FinishBottomGesture(PointerRoutedEventArgs e)
+    {
+        if (!_isBottomGestureActive)
+        {
+            return;
+        }
+
+        _isBottomGestureActive = false;
+        BottomGestureZone.ReleasePointerCapture(e.Pointer);
+        var currentY = e.GetCurrentPoint(Root).Position.Y;
+        var crossedMidpoint = currentY < Root.ActualHeight * 0.52;
+        if (crossedMidpoint)
+        {
+            ExpandDesktopOverlay();
+            ViewModel.OpenTaskSwitcherCommand.Execute(null);
+            return;
+        }
+
+        ViewModel.ShowDockCommand.Execute(null);
+        ScheduleDockAutoHide();
+    }
+
+    private void ScheduleDockAutoHide()
+    {
+        if (!ViewModel.IsDesktopMode)
+        {
+            return;
+        }
+
+        _dockAutoHide.Stop();
+        _dockAutoHide.Start();
+    }
+
+    private static void ExpandDesktopOverlay()
+    {
+        if (App.Window is MainWindow mainWindow)
+        {
+            mainWindow.ExpandOverlay();
+        }
+    }
+
+    private void CollapseDesktopOverlayIfIdle()
+    {
+        if (!ViewModel.IsDesktopMode || ViewModel.IsControlCenterOpen || ViewModel.IsTaskSwitcherOpen || ViewModel.IsDrawerOpen || ViewModel.IsSettingsOpen)
+        {
+            return;
+        }
+
+        if (App.Window is MainWindow mainWindow)
+        {
+            mainWindow.CollapseOverlayToDock();
+        }
     }
 
     private async void OnAppRefreshTick(object? sender, object e)

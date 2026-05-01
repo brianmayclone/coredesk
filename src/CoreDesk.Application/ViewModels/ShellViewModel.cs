@@ -69,6 +69,12 @@ public sealed partial class ShellViewModel(
     private ShellMode _currentMode = ShellMode.Touch;
 
     [ObservableProperty]
+    private bool _isDockVisible = true;
+
+    [ObservableProperty]
+    private bool _isTaskSwitcherOpen;
+
+    [ObservableProperty]
     private string _currentTime = DateTime.Now.ToString("HH:mm");
 
     [ObservableProperty]
@@ -104,6 +110,10 @@ public sealed partial class ShellViewModel(
 
     public string ModeLabel => CurrentMode == ShellMode.Touch ? text["TouchMode"] : text["DesktopMode"];
 
+    public bool IsDesktopMode => CurrentMode == ShellMode.Desktop;
+
+    public bool IsTouchMode => CurrentMode == ShellMode.Touch;
+
     public string ControlCenterLabel => text["ControlCenter"];
 
     public string? WallpaperPath { get; private set; }
@@ -136,6 +146,7 @@ public sealed partial class ShellViewModel(
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        _ = widgetRegistry;
         diagnostics.Info("ShellViewModel initialization started.");
         if (launchOptions.ResetConfig)
         {
@@ -167,7 +178,11 @@ public sealed partial class ShellViewModel(
         shellModeService.ModeChanged += (_, mode) =>
         {
             CurrentMode = mode;
+            IsDockVisible = true;
+            IsTaskSwitcherOpen = false;
             OnPropertyChanged(nameof(ModeLabel));
+            OnPropertyChanged(nameof(IsDesktopMode));
+            OnPropertyChanged(nameof(IsTouchMode));
             RefreshStatus();
         };
         hardwareMonitor.HardwareStateChanged += (_, _) => RefreshStatus();
@@ -228,6 +243,7 @@ public sealed partial class ShellViewModel(
     [RelayCommand]
     private void OpenControlCenter()
     {
+        IsDockVisible = true;
         IsControlCenterOpen = true;
         IsDrawerOpen = false;
         IsSettingsOpen = false;
@@ -300,6 +316,37 @@ public sealed partial class ShellViewModel(
         {
             shellModeService.EnterTouchMode();
         }
+    }
+
+    [RelayCommand]
+    private void ShowDock()
+    {
+        IsDockVisible = true;
+    }
+
+    [RelayCommand]
+    private void HideDock()
+    {
+        if (CurrentMode == ShellMode.Desktop && !IsTaskSwitcherOpen && !IsControlCenterOpen && !IsDrawerOpen && !IsSettingsOpen)
+        {
+            IsDockVisible = false;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenTaskSwitcher()
+    {
+        IsDockVisible = true;
+        IsTaskSwitcherOpen = true;
+        IsControlCenterOpen = false;
+        IsDrawerOpen = false;
+        IsSettingsOpen = false;
+    }
+
+    [RelayCommand]
+    private void CloseTaskSwitcher()
+    {
+        IsTaskSwitcherOpen = false;
     }
 
     [RelayCommand]

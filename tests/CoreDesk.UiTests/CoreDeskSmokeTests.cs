@@ -61,6 +61,11 @@ public sealed class CoreDeskSmokeTests
             ClickByName(window, "Open Control Center");
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "04-control-center.png", screenshotFailures);
+
+            ClickByName(window, "Close Control Center");
+            ClickByName(window, "Toggle Desktop Mode");
+            BringCoreDeskToFront();
+            CapturePhysicalScreen(screenshotDirectory, "05-desktop-dock-overlay.png", screenshotFailures);
         }
         finally
         {
