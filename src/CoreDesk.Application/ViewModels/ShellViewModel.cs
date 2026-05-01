@@ -357,18 +357,13 @@ public sealed partial class ShellViewModel(
                 : new HomeWidgetViewModel(widget, BatteryLabel, $"{NetworkLabel} · {KeyboardLabel}"));
         }
 
-        foreach (var app in AppsFromHomeLayout().Take(24))
-        {
-            HomeApps.Add(app);
-            HomeTiles.Add(new HomeTileViewModel(app, null));
-        }
-
         foreach (var folder in _layout.Folders)
         {
             var folderTile = new FolderTileViewModel(folder, folder.AppIds.Count);
             HomeFolders.Add(folderTile);
-            HomeTiles.Add(new HomeTileViewModel(null, folderTile));
         }
+
+        RefreshHomeTiles();
 
         foreach (var app in AppsByIds(_layout.DockAppIds).Take(8))
         {
@@ -405,6 +400,39 @@ public sealed partial class ShellViewModel(
         OnPropertyChanged(nameof(DpiSummary));
     }
 
+    private void RefreshHomeTiles()
+    {
+        HomeApps.Clear();
+        HomeTiles.Clear();
+
+        var appById = _allApps.ToDictionary(app => app.Id, StringComparer.OrdinalIgnoreCase);
+        var folderById = HomeFolders.ToDictionary(folder => folder.Folder.Id, StringComparer.OrdinalIgnoreCase);
+        var page = _layout.Pages
+            .OrderBy(candidate => candidate.Index)
+            .FirstOrDefault(candidate => candidate.Index == CurrentPageIndex)
+            ?? _layout.Pages.OrderBy(candidate => candidate.Index).FirstOrDefault();
+
+        if (page is null)
+        {
+            return;
+        }
+
+        foreach (var tile in page.Tiles.OrderBy(tile => tile.Row).ThenBy(tile => tile.Column))
+        {
+            if (!string.IsNullOrWhiteSpace(tile.AppId) && appById.TryGetValue(tile.AppId, out var app))
+            {
+                HomeApps.Add(app);
+                HomeTiles.Add(new HomeTileViewModel(app, null));
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(tile.FolderId) && folderById.TryGetValue(tile.FolderId, out var folder))
+            {
+                HomeTiles.Add(new HomeTileViewModel(null, folder));
+            }
+        }
+    }
+
     private void RefreshDrawer()
     {
         DrawerApps.Clear();
@@ -417,15 +445,6 @@ public sealed partial class ShellViewModel(
         {
             DrawerApps.Add(app);
         }
-    }
-
-    private IEnumerable<AppEntry> AppsFromHomeLayout()
-    {
-        var tileIds = _layout.Pages
-            .OrderBy(page => page.Index)
-            .SelectMany(page => page.Tiles.OrderBy(tile => tile.Row).ThenBy(tile => tile.Column))
-            .Select(tile => tile.AppId);
-        return AppsByIds(tileIds);
     }
 
     private IEnumerable<AppEntry> AppsByIds(IEnumerable<string> ids)

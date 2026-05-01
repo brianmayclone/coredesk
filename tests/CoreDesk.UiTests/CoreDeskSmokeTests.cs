@@ -121,6 +121,15 @@ public sealed class CoreDeskSmokeTests
             failures.Add($"{fileName}: {readabilityFailure}");
         }
 
+        if (fileName.Contains("homescreen", StringComparison.OrdinalIgnoreCase))
+        {
+            var dockFailure = GetDockSurfaceFailure(bitmap);
+            if (dockFailure is not null)
+            {
+                failures.Add($"{fileName}: {dockFailure}");
+            }
+        }
+
         bitmap.Save(Path.Combine(directory, fileName), System.Drawing.Imaging.ImageFormat.Png);
     }
 
@@ -143,11 +152,11 @@ public sealed class CoreDeskSmokeTests
     private static void AssertCoreDeskIsForeground()
     {
         var foreground = GetForegroundWindow();
-        var coreDeskHandles = System.Diagnostics.Process.GetProcessesByName("CoreDesk.App")
-            .Select(process => process.MainWindowHandle)
-            .Where(handle => handle != IntPtr.Zero)
+        _ = GetWindowThreadProcessId(foreground, out var foregroundProcessId);
+        var coreDeskProcessIds = System.Diagnostics.Process.GetProcessesByName("CoreDesk.App")
+            .Select(process => (uint)process.Id)
             .ToHashSet();
-        Assert.Contains(foreground, coreDeskHandles);
+        Assert.Contains(foregroundProcessId, coreDeskProcessIds);
     }
 
     private static string? GetReadabilityFailure(Bitmap bitmap)
@@ -191,6 +200,47 @@ public sealed class CoreDeskSmokeTests
         return null;
     }
 
+    private static string? GetDockSurfaceFailure(Bitmap bitmap)
+    {
+        var region = new Rectangle(
+            (int)(bitmap.Width * 0.34),
+            (int)(bitmap.Height * 0.88),
+            (int)(bitmap.Width * 0.32),
+            (int)(bitmap.Height * 0.1));
+        var sampled = 0;
+        var veryBright = 0;
+        var totalLuminance = 0.0;
+        var totalSpread = 0.0;
+        var stepX = Math.Max(1, region.Width / 90);
+        var stepY = Math.Max(1, region.Height / 24);
+
+        for (var y = region.Top; y < region.Bottom; y += stepY)
+        {
+            for (var x = region.Left; x < region.Right; x += stepX)
+            {
+                var color = bitmap.GetPixel(x, y);
+                var luminance = (color.R * 0.2126) + (color.G * 0.7152) + (color.B * 0.0722);
+                var spread = Math.Max(color.R, Math.Max(color.G, color.B)) - Math.Min(color.R, Math.Min(color.G, color.B));
+                sampled++;
+                totalLuminance += luminance;
+                totalSpread += spread;
+                if (luminance > 225)
+                {
+                    veryBright++;
+                }
+            }
+        }
+
+        var averageLuminance = totalLuminance / sampled;
+        var averageSpread = totalSpread / sampled;
+        if (averageLuminance > 205 && veryBright > sampled * 0.35 && averageSpread < 28)
+        {
+            return "Dock surface is still rendering as a bright white block instead of a translucent blurred surface.";
+        }
+
+        return null;
+    }
+
     private static void CloseApp(Application app)
     {
         try
@@ -224,6 +274,9 @@ public sealed class CoreDeskSmokeTests
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);

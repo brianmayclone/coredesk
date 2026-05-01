@@ -186,13 +186,21 @@
             </StackPanel>
 
             <Border
+                x:Name="DockSurface"
                 Grid.Row="4"
                 HorizontalAlignment="Center"
                 Padding="20,16"
-                Background="#D7FFFFFF"
                 BorderBrush="#66FFFFFF"
                 BorderThickness="1"
-                CornerRadius="38">
+                CornerRadius="38"
+                AutomationProperties.Name="CoreDesk Dock">
+                <Border.Background>
+                    <AcrylicBrush
+                        TintColor="#DCEAF0"
+                        TintOpacity="0.2"
+                        TintLuminosityOpacity="0.28"
+                        FallbackColor="#55212C34" />
+                </Border.Background>
                 <StackPanel Orientation="Horizontal" Spacing="14">
                     <ItemsControl ItemsSource="{x:Bind ViewModel.DockApps, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
@@ -206,11 +214,11 @@
                                     Width="72"
                                     Height="72"
                                     Padding="0"
-                                    Background="#66FFFFFF"
+                                    Background="#2BFFFFFF"
                                     Click="OnDockAppClick"
                                     Tag="{x:Bind}">
                                     <Grid>
-                                        <FontIcon Glyph="&#xECAA;" FontSize="30" Foreground="#FF26323C" />
+                                        <FontIcon Glyph="&#xECAA;" FontSize="30" Foreground="#F026323C" />
                                         <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Margin="12" Stretch="Uniform" />
                                     </Grid>
                                 </Button>
