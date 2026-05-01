@@ -15,6 +15,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         EnableTransparentColorKey(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        ExtendGlassIntoClientArea(WinRT.Interop.WindowNative.GetWindowHandle(this));
         AppWindow.SetIcon("Assets/AppIcon.ico");
         AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
         Content.KeyDown += OnKeyDown;
@@ -111,6 +112,12 @@ public sealed partial class MainWindow : Window
         SetLayeredWindowAttributes(handle, TransparentColorKey, 255, LWA_COLORKEY);
     }
 
+    private static void ExtendGlassIntoClientArea(nint handle)
+    {
+        var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+        _ = DwmExtendFrameIntoClientArea(handle, ref margins);
+    }
+
     private static bool IsControlAltPressed()
     {
         var control = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
@@ -142,4 +149,16 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(nint hWnd, ref Margins pMarInset);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Margins
+    {
+        public int Left;
+        public int Right;
+        public int Top;
+        public int Bottom;
+    }
 }
