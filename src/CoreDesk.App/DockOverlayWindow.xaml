@@ -11,50 +11,65 @@
 
     <Grid
         x:Name="Root"
-        Background="#01000000"
         PointerEntered="OnRootPointerEntered"
         PointerExited="OnRootPointerExited"
         PointerPressed="OnRootPointerPressed"
         PointerMoved="OnRootPointerMoved"
         PointerReleased="OnRootPointerReleased"
         PointerCanceled="OnRootPointerCanceled">
-        <Border
-            x:Name="GestureHandle"
-            Width="74"
-            Height="5"
-            Margin="0,0,0,116"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Bottom"
-            Background="#99FFFFFF"
-            CornerRadius="2.5" />
-
+        <Grid.Background>
+            <AcrylicBrush
+                TintColor="#D7E8F2"
+                TintOpacity="0.16"
+                TintLuminosityOpacity="0.24"
+                FallbackColor="#D865747D" />
+        </Grid.Background>
         <Border
             x:Name="LiquidDock"
-            Margin="10,0,10,12"
-            Padding="18,14"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Bottom"
+            Margin="0"
+            Padding="18,11,18,13"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
             BorderBrush="#8FFFFFFF"
             BorderThickness="1"
-            CornerRadius="38">
+            CornerRadius="34"
+            Opacity="0">
+            <Border.RenderTransform>
+                <CompositeTransform x:Name="DockTransform" TranslateY="94" ScaleX="0.985" ScaleY="0.985" />
+            </Border.RenderTransform>
             <Border.Background>
                 <AcrylicBrush
-                    TintColor="#DCEAF0"
-                    TintOpacity="0.22"
-                    TintLuminosityOpacity="0.34"
-                    FallbackColor="#D8455862" />
+                    TintColor="#D7E8F2"
+                    TintOpacity="0.18"
+                    TintLuminosityOpacity="0.28"
+                    FallbackColor="#D96C7A82" />
             </Border.Background>
             <Grid>
-                <Border Opacity="0.55" CornerRadius="36">
+                <Border Opacity="0.62" CornerRadius="33">
                     <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#9FFFFFFF" Offset="0" />
-                            <GradientStop Color="#20FFFFFF" Offset="0.42" />
-                            <GradientStop Color="#26111820" Offset="1" />
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.9">
+                            <GradientStop Color="#A6FFFFFF" Offset="0" />
+                            <GradientStop Color="#2EFFFFFF" Offset="0.36" />
+                            <GradientStop Color="#3554768D" Offset="1" />
                         </LinearGradientBrush>
                     </Border.Background>
                 </Border>
-                <StackPanel Orientation="Horizontal" Spacing="12">
+                <Border
+                    Height="1"
+                    Margin="28,1,28,0"
+                    VerticalAlignment="Top"
+                    Opacity="0.8"
+                    Background="#D9FFFFFF"
+                    CornerRadius="0.5" />
+                <Border
+                    Width="68"
+                    Height="4"
+                    Margin="0,0,0,5"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Background="#73FFFFFF"
+                    CornerRadius="2" />
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="12">
                     <ItemsControl ItemsSource="{x:Bind ViewModel.PinnedDockItems, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>

@@ -135,6 +135,15 @@ public sealed class CoreDeskSmokeTests
             }
         }
 
+        if (isDesktopOverlay)
+        {
+            var overlayDockFailure = GetDesktopOverlayDockFailure(bitmap);
+            if (overlayDockFailure is not null)
+            {
+                failures.Add($"{fileName}: {overlayDockFailure}");
+            }
+        }
+
         bitmap.Save(Path.Combine(directory, fileName), System.Drawing.Imaging.ImageFormat.Png);
     }
 
@@ -241,6 +250,58 @@ public sealed class CoreDeskSmokeTests
         if (averageLuminance > 205 && veryBright > sampled * 0.35 && averageSpread < 28)
         {
             return "Dock surface is still rendering as a bright white block instead of a translucent blurred surface.";
+        }
+
+        return null;
+    }
+
+    private static string? GetDesktopOverlayDockFailure(Bitmap bitmap)
+    {
+        var region = new Rectangle(
+            (int)(bitmap.Width * 0.4),
+            (int)(bitmap.Height * 0.89),
+            (int)(bitmap.Width * 0.24),
+            (int)(bitmap.Height * 0.08));
+        var sampled = 0;
+        var bright = 0;
+        var veryBright = 0;
+        var totalLuminance = 0.0;
+        var totalSpread = 0.0;
+        var stepX = Math.Max(1, region.Width / 80);
+        var stepY = Math.Max(1, region.Height / 22);
+
+        for (var y = region.Top; y < region.Bottom; y += stepY)
+        {
+            for (var x = region.Left; x < region.Right; x += stepX)
+            {
+                var color = bitmap.GetPixel(x, y);
+                var luminance = (color.R * 0.2126) + (color.G * 0.7152) + (color.B * 0.0722);
+                var spread = Math.Max(color.R, Math.Max(color.G, color.B)) - Math.Min(color.R, Math.Min(color.G, color.B));
+                sampled++;
+                totalLuminance += luminance;
+                totalSpread += spread;
+                if (luminance > 75)
+                {
+                    bright++;
+                }
+
+                if (luminance > 220)
+                {
+                    veryBright++;
+                }
+            }
+        }
+
+        var averageLuminance = totalLuminance / sampled;
+        var averageSpread = totalSpread / sampled;
+        if (averageLuminance < 48 || bright < sampled * 0.14)
+        {
+            return "Desktop overlay dock is not visibly rendered at the bottom of the physical screenshot.";
+        }
+
+        if (averageLuminance > 205 && veryBright > sampled * 0.35 && averageSpread < 30)
+        {
+            return "Desktop overlay dock is still rendering as a flat white block instead of liquid glass.";
         }
 
         return null;

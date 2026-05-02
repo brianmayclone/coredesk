@@ -1,5 +1,6 @@
 using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System.Runtime.InteropServices;
@@ -14,6 +15,7 @@ public sealed partial class DockOverlayWindow : Window
     private bool _isRaised;
     private bool _isGestureActive;
     private double _gestureStartY;
+    private Storyboard? _dockStoryboard;
 
     public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
 
@@ -73,6 +75,7 @@ public sealed partial class DockOverlayWindow : Window
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
         SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
+        SetRoundedWindowCorners(handle);
         KeepTopMost();
         PositionWindow();
         AppWindow.Hide();
@@ -82,9 +85,13 @@ public sealed partial class DockOverlayWindow : Window
     {
         var screenWidth = GetSystemMetrics(0);
         var screenHeight = GetSystemMetrics(1);
-        var width = Math.Min(1500, Math.Max(1040, (int)(screenWidth * 0.46)));
-        const int height = 156;
-        AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 10, width, height));
+        var dockItemCount = Math.Clamp(ViewModel.PinnedDockItems.Count, 1, 10)
+            + Math.Clamp(ViewModel.RunningDockItems.Count, 0, 7)
+            + 4;
+        var requestedWidth = 62 + (dockItemCount * 76) + 28;
+        var width = Math.Clamp(requestedWidth, 560, Math.Min(1420, screenWidth - 180));
+        const int height = 106;
+        AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 26, width, height));
     }
 
     private void RaiseDock()
@@ -108,10 +115,28 @@ public sealed partial class DockOverlayWindow : Window
 
     private void AnimateDock(double translationY, double opacity, double scale)
     {
-        LiquidDock.CenterPoint = new System.Numerics.Vector3((float)(LiquidDock.ActualWidth / 2), 86, 0);
-        LiquidDock.Translation = new System.Numerics.Vector3(0, (float)translationY, 0);
-        LiquidDock.Opacity = opacity;
-        LiquidDock.Scale = new System.Numerics.Vector3((float)scale, (float)scale, 1);
+        _dockStoryboard?.Stop();
+
+        var easing = new CircleEase { EasingMode = translationY <= 0 ? EasingMode.EaseOut : EasingMode.EaseIn };
+        _dockStoryboard = new Storyboard();
+        AddDoubleAnimation(_dockStoryboard, DockTransform, "TranslateY", translationY, 320, easing);
+        AddDoubleAnimation(_dockStoryboard, DockTransform, "ScaleX", scale, 320, easing);
+        AddDoubleAnimation(_dockStoryboard, DockTransform, "ScaleY", scale, 320, easing);
+        AddDoubleAnimation(_dockStoryboard, LiquidDock, "Opacity", opacity, 210, easing);
+        _dockStoryboard.Begin();
+    }
+
+    private static void AddDoubleAnimation(Storyboard storyboard, DependencyObject target, string propertyPath, double to, int milliseconds, EasingFunctionBase easing)
+    {
+        var animation = new DoubleAnimation
+        {
+            To = to,
+            Duration = new Duration(TimeSpan.FromMilliseconds(milliseconds)),
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, propertyPath);
+        storyboard.Children.Add(animation);
     }
 
     private void RestartAutoHide()
@@ -196,6 +221,7 @@ public sealed partial class DockOverlayWindow : Window
     {
         if (sender is Button button)
         {
+            button.CenterPoint = new System.Numerics.Vector3((float)(button.ActualWidth / 2), (float)(button.ActualHeight / 2), 0);
             button.Scale = new System.Numerics.Vector3(1.14f, 1.14f, 1);
             button.Translation = new System.Numerics.Vector3(0, -7, 0);
         }
@@ -215,6 +241,12 @@ public sealed partial class DockOverlayWindow : Window
         SetWindowPos(WinRT.Interop.WindowNative.GetWindowHandle(this), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
+    private static void SetRoundedWindowCorners(nint handle)
+    {
+        var preference = DWMWCP_ROUND;
+        _ = DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+    }
+
     private static readonly nint HWND_TOPMOST = new(-1);
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -222,6 +254,8 @@ public sealed partial class DockOverlayWindow : Window
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWCP_ROUND = 2;
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
@@ -234,4 +268,7 @@ public sealed partial class DockOverlayWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 }
