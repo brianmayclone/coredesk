@@ -544,10 +544,25 @@
         </Grid>
 
         <Grid
-            Background="#66071018"
             Visibility="{Binding IsTaskSwitcherOpen, Converter={StaticResource BoolToVisibilityConverter}}"
             AutomationProperties.Name="CoreDesk Task Switcher">
-            <Grid Padding="96,96,96,190" RowSpacing="26">
+            <Grid.Background>
+                <AcrylicBrush
+                    TintColor="#0B1520"
+                    TintOpacity="0.48"
+                    TintLuminosityOpacity="0.18"
+                    FallbackColor="#D90B1520" />
+            </Grid.Background>
+            <Grid>
+                <Grid.Background>
+                    <RadialGradientBrush Center="0.5,0.18" RadiusX="0.74" RadiusY="0.86">
+                        <GradientStop Color="#26FFFFFF" Offset="0" />
+                        <GradientStop Color="#111D3448" Offset="0.48" />
+                        <GradientStop Color="#99071018" Offset="1" />
+                    </RadialGradientBrush>
+                </Grid.Background>
+            </Grid>
+            <Grid Padding="96,70,96,178" RowSpacing="28">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -558,41 +573,57 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock Text="App Switcher" FontSize="34" FontWeight="SemiBold" Foreground="White" />
-                        <TextBlock Text="Running apps" FontSize="16" Foreground="#CCFFFFFF" />
+                        <TextBlock Text="App Switcher" FontSize="38" FontWeight="SemiBold" Foreground="White" />
+                        <TextBlock Text="Running apps" FontSize="17" Foreground="#D9FFFFFF" />
                     </StackPanel>
-                    <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseTaskSwitcherCommand}" Width="56" Height="56" Padding="0" AutomationProperties.Name="Close Task Switcher">
+                    <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseTaskSwitcherCommand}" Width="56" Height="56" Padding="0" Background="#2EFFFFFF" BorderBrush="#42FFFFFF" CornerRadius="28" AutomationProperties.Name="Close Task Switcher">
                         <FontIcon Glyph="&#xE711;" FontSize="18" />
                     </Button>
                 </Grid>
-                <ItemsControl Grid.Row="1" ItemsSource="{x:Bind ViewModel.RunningDockItems, Mode=OneWay}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="22" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="viewModels:DockItemViewModel">
-                            <Button Width="250" Height="330" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnDockAppClick" Tag="{x:Bind}">
-                                <Border Padding="18" Background="#DDF7FAFC" BorderBrush="#66FFFFFF" BorderThickness="1" CornerRadius="28">
-                                    <Grid RowSpacing="18">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Border Background="{x:Bind IconPath, Converter={StaticResource IconPathToBrushConverter}, Mode=OneWay}" CornerRadius="22">
-                                            <Grid>
-                                                <FontIcon Glyph="&#xECAA;" FontSize="46" Foreground="#EFFFFFFF" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
-                                                <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Margin="56" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                <ScrollViewer Grid.Row="1" HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.TaskSwitcherItems, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Vertical" MaximumRowsOrColumns="2" ItemWidth="310" ItemHeight="252" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="viewModels:DockItemViewModel">
+                                <Button Width="292" Height="236" Margin="9,8" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnDockAppClick" Tag="{x:Bind}">
+                                    <Grid>
+                                        <Border
+                                            Margin="0,10,0,0"
+                                            Background="#26000000"
+                                            CornerRadius="30" />
+                                        <Border Padding="16" Background="#E8F4F8FB" BorderBrush="#7DFFFFFF" BorderThickness="1" CornerRadius="30">
+                                            <Grid RowSpacing="13">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="*" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <Border Background="{x:Bind IconPath, Converter={StaticResource IconPathToBrushConverter}, Mode=OneWay}" CornerRadius="23">
+                                                    <Grid>
+                                                        <Border Margin="14" Background="#30FFFFFF" CornerRadius="18" />
+                                                        <FontIcon Glyph="&#xECAA;" FontSize="48" Foreground="#EFFFFFFF" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
+                                                        <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Margin="46" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                                    </Grid>
+                                                </Border>
+                                                <Grid Grid.Row="1" ColumnSpacing="10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{x:Bind DisplayName}" FontSize="16" FontWeight="SemiBold" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Foreground="#FF111820" />
+                                                    <Border Grid.Column="1" Width="9" Height="9" VerticalAlignment="Center" Background="#FF0A84FF" CornerRadius="4.5" />
+                                                </Grid>
                                             </Grid>
                                         </Border>
-                                        <TextBlock Grid.Row="1" Text="{x:Bind DisplayName}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" Foreground="#FF111820" />
                                     </Grid>
-                                </Border>
-                            </Button>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </Grid>
         </Grid>
 

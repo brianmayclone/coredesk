@@ -9,21 +9,29 @@
     Title="CoreDesk Dock"
     mc:Ignorable="d">
 
+    <Window.SystemBackdrop>
+        <DesktopAcrylicBackdrop />
+    </Window.SystemBackdrop>
+
     <Grid
         x:Name="Root"
+        Background="Transparent"
         PointerEntered="OnRootPointerEntered"
         PointerExited="OnRootPointerExited"
         PointerPressed="OnRootPointerPressed"
         PointerMoved="OnRootPointerMoved"
         PointerReleased="OnRootPointerReleased"
         PointerCanceled="OnRootPointerCanceled">
-        <Grid.Background>
-            <AcrylicBrush
-                TintColor="#D7E8F2"
-                TintOpacity="0.16"
-                TintLuminosityOpacity="0.24"
-                FallbackColor="#D865747D" />
-        </Grid.Background>
+        <Grid.Resources>
+            <SolidColorBrush x:Key="ButtonBackground" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+            <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="Transparent" />
+        </Grid.Resources>
         <Border
             x:Name="LiquidDock"
             Margin="0"
@@ -31,26 +39,22 @@
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
             BorderBrush="#8FFFFFFF"
-            BorderThickness="1"
-            CornerRadius="34"
+            BorderThickness="0"
+            CornerRadius="0"
             Opacity="0">
             <Border.RenderTransform>
                 <CompositeTransform x:Name="DockTransform" TranslateY="94" ScaleX="0.985" ScaleY="0.985" />
             </Border.RenderTransform>
             <Border.Background>
-                <AcrylicBrush
-                    TintColor="#D7E8F2"
-                    TintOpacity="0.18"
-                    TintLuminosityOpacity="0.28"
-                    FallbackColor="#D96C7A82" />
+                <SolidColorBrush Color="#78EDF8FF" />
             </Border.Background>
             <Grid>
-                <Border Opacity="0.62" CornerRadius="33">
+                <Border Opacity="0.78" CornerRadius="0">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.9">
-                            <GradientStop Color="#A6FFFFFF" Offset="0" />
-                            <GradientStop Color="#2EFFFFFF" Offset="0.36" />
-                            <GradientStop Color="#3554768D" Offset="1" />
+                            <GradientStop Color="#BFFFFFFF" Offset="0" />
+                            <GradientStop Color="#38FFFFFF" Offset="0.38" />
+                            <GradientStop Color="#305E798A" Offset="1" />
                         </LinearGradientBrush>
                     </Border.Background>
                 </Border>
@@ -94,8 +98,8 @@
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="3" />
                                         </Grid.RowDefinitions>
-                                        <Grid Width="58" Height="58">
-                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
+                                        <Grid Width="54" Height="54">
+                                            <FontIcon Glyph="&#xECAA;" FontSize="28" Foreground="#F026323C" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
                                             <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Stretch="Uniform" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}}" />
                                         </Grid>
                                         <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
@@ -131,8 +135,8 @@
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="3" />
                                         </Grid.RowDefinitions>
-                                        <Grid Width="58" Height="58">
-                                            <FontIcon Glyph="&#xECAA;" FontSize="29" Foreground="#F026323C" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
+                                        <Grid Width="54" Height="54">
+                                            <FontIcon Glyph="&#xECAA;" FontSize="28" Foreground="#F026323C" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
                                             <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Stretch="Uniform" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}}" />
                                         </Grid>
                                         <Border Grid.Row="1" Width="18" Height="3" HorizontalAlignment="Center" Background="#FF0A84FF" CornerRadius="1.5" />

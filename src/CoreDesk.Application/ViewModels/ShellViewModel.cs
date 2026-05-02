@@ -45,6 +45,8 @@ public sealed partial class ShellViewModel(
 
     public ObservableCollection<DockItemViewModel> RunningDockItems { get; } = [];
 
+    public ObservableCollection<DockItemViewModel> TaskSwitcherItems { get; } = [];
+
     public ObservableCollection<AppEntry> DrawerApps { get; } = [];
 
     public ObservableCollection<DrawerCategoryViewModel> DrawerCategories { get; } = [];
@@ -427,6 +429,7 @@ public sealed partial class ShellViewModel(
         DockApps.Clear();
         PinnedDockItems.Clear();
         RunningDockItems.Clear();
+        TaskSwitcherItems.Clear();
 
         foreach (var widget in _layout.Widgets)
         {
@@ -535,17 +538,25 @@ public sealed partial class ShellViewModel(
 
         PinnedDockItems.Clear();
         RunningDockItems.Clear();
+        TaskSwitcherItems.Clear();
         DockApps.Clear();
 
         foreach (var app in pinnedApps)
         {
-            PinnedDockItems.Add(new DockItemViewModel(app, runningIds.Contains(app.Id)));
+            var isRunning = runningIds.Contains(app.Id);
+            PinnedDockItems.Add(new DockItemViewModel(app, isRunning));
             DockApps.Add(app);
+            if (isRunning)
+            {
+                TaskSwitcherItems.Add(new DockItemViewModel(app, true));
+            }
         }
 
         foreach (var app in _allApps.Where(app => runningIds.Contains(app.Id) && !pinnedIds.Contains(app.Id)).Take(6))
         {
-            RunningDockItems.Add(new DockItemViewModel(app, true));
+            var item = new DockItemViewModel(app, true);
+            RunningDockItems.Add(item);
+            TaskSwitcherItems.Add(item);
         }
     }
 

@@ -43,7 +43,7 @@ public sealed partial class DockOverlayWindow : Window
 
         _initialized = true;
         await ViewModel.InitializeAsync();
-        ViewModel.UpdateViewport(1200, 180);
+        ViewModel.UpdateViewport(GetSystemMetrics(0), GetSystemMetrics(1));
         Bindings.Update();
     }
 
@@ -85,13 +85,16 @@ public sealed partial class DockOverlayWindow : Window
     {
         var screenWidth = GetSystemMetrics(0);
         var screenHeight = GetSystemMetrics(1);
+        ViewModel.UpdateViewport(screenWidth, screenHeight);
         var dockItemCount = Math.Clamp(ViewModel.PinnedDockItems.Count, 1, 10)
             + Math.Clamp(ViewModel.RunningDockItems.Count, 0, 7)
             + 4;
-        var requestedWidth = 62 + (dockItemCount * 76) + 28;
+        var buttonSize = (int)Math.Round(ViewModel.DockButtonSize);
+        var requestedWidth = 40 + (dockItemCount * buttonSize) + Math.Max(0, dockItemCount - 1) * 12 + 18;
         var width = Math.Clamp(requestedWidth, 560, Math.Min(1420, screenWidth - 180));
-        const int height = 106;
+        var height = Math.Clamp(buttonSize + 34, 116, 132);
         AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 26, width, height));
+        ApplyRoundedWindowRegion(width, height);
     }
 
     private void RaiseDock()
@@ -247,6 +250,21 @@ public sealed partial class DockOverlayWindow : Window
         _ = DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
     }
 
+    private void ApplyRoundedWindowRegion(int width, int height)
+    {
+        const int cornerDiameter = 84;
+        var region = CreateRoundRectRgn(0, 0, width + 1, height + 1, cornerDiameter, cornerDiameter);
+        if (region == 0)
+        {
+            return;
+        }
+
+        if (SetWindowRgn(WinRT.Interop.WindowNative.GetWindowHandle(this), region, true) == 0)
+        {
+            _ = DeleteObject(region);
+        }
+    }
+
     private static readonly nint HWND_TOPMOST = new(-1);
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -271,4 +289,13 @@ public sealed partial class DockOverlayWindow : Window
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [DllImport("gdi32.dll")]
+    private static extern nint CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowRgn(nint hWnd, nint hRgn, bool bRedraw);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(nint hObject);
 }
