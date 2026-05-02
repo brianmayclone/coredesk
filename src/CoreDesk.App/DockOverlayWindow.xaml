@@ -35,26 +35,30 @@
         <Border
             x:Name="LiquidDock"
             Margin="0"
-            Padding="18,11,18,13"
+            Padding="18,10,18,12"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
-            BorderBrush="#8FFFFFFF"
-            BorderThickness="0"
-            CornerRadius="0"
+            BorderBrush="#72FFFFFF"
+            BorderThickness="1"
+            CornerRadius="42"
             Opacity="0">
             <Border.RenderTransform>
                 <CompositeTransform x:Name="DockTransform" TranslateY="94" ScaleX="0.985" ScaleY="0.985" />
             </Border.RenderTransform>
             <Border.Background>
-                <SolidColorBrush Color="#78EDF8FF" />
+                <AcrylicBrush
+                    TintColor="#EAF4F8"
+                    TintOpacity="0.42"
+                    TintLuminosityOpacity="0.56"
+                    FallbackColor="#A8EAF4F8" />
             </Border.Background>
             <Grid>
-                <Border Opacity="0.78" CornerRadius="0">
+                <Border Opacity="0.74" CornerRadius="41">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.9">
-                            <GradientStop Color="#BFFFFFFF" Offset="0" />
-                            <GradientStop Color="#38FFFFFF" Offset="0.38" />
-                            <GradientStop Color="#305E798A" Offset="1" />
+                            <GradientStop Color="#C9FFFFFF" Offset="0" />
+                            <GradientStop Color="#42FFFFFF" Offset="0.42" />
+                            <GradientStop Color="#447A8E94" Offset="1" />
                         </LinearGradientBrush>
                     </Border.Background>
                 </Border>
@@ -65,14 +69,20 @@
                     Opacity="0.8"
                     Background="#D9FFFFFF"
                     CornerRadius="0.5" />
-                <Border
-                    Width="68"
-                    Height="4"
-                    Margin="0,0,0,5"
+                <Button
+                    Width="110"
+                    Height="22"
+                    Margin="0,0,0,0"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Bottom"
-                    Background="#73FFFFFF"
-                    CornerRadius="2" />
+                    Padding="0"
+                    Background="Transparent"
+                    BorderBrush="Transparent"
+                    BorderThickness="0"
+                    Click="OnTaskSwitcherClick"
+                    AutomationProperties.Name="Open Task Switcher">
+                    <Border Width="68" Height="4" Background="#5CFFFFFF" CornerRadius="2" />
+                </Button>
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal" Spacing="12">
                     <ItemsControl ItemsSource="{x:Bind ViewModel.PinnedDockItems, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>

@@ -50,23 +50,35 @@ public sealed class CoreDeskSmokeTests
             Thread.Sleep(2000);
             CapturePhysicalScreen(screenshotDirectory, "01-homescreen.png", screenshotFailures);
 
+            ClickAnyByName(window, "Utilities");
+            BringCoreDeskToFront();
+            CapturePhysicalScreen(screenshotDirectory, "02-folder-overlay.png", screenshotFailures);
+
+            ClickByName(window, "Close Folder");
             ClickByName(window, "Open App Drawer");
             BringCoreDeskToFront();
-            CapturePhysicalScreen(screenshotDirectory, "02-appdrawer.png", screenshotFailures);
+            CapturePhysicalScreen(screenshotDirectory, "03-appdrawer.png", screenshotFailures);
+
+            EnterTextByName(window, "App Drawer Search", "store");
+            BringCoreDeskToFront();
+            CapturePhysicalScreen(screenshotDirectory, "04-appdrawer-search.png", screenshotFailures);
 
             ClickByName(window, "Open Settings");
             BringCoreDeskToFront();
-            CapturePhysicalScreen(screenshotDirectory, "03-settings.png", screenshotFailures);
+            CapturePhysicalScreen(screenshotDirectory, "05-settings.png", screenshotFailures);
 
             ClickByName(window, "Close Settings");
             ClickByName(window, "Open Control Center");
             BringCoreDeskToFront();
-            CapturePhysicalScreen(screenshotDirectory, "04-control-center.png", screenshotFailures);
+            CapturePhysicalScreen(screenshotDirectory, "06-control-center.png", screenshotFailures);
 
             ClickByName(window, "Close Control Center");
             ClickByName(window, "Toggle Desktop Mode");
             BringCoreDeskToFront();
-            CapturePhysicalScreen(screenshotDirectory, "05-desktop-dock-overlay.png", screenshotFailures);
+            CapturePhysicalScreen(screenshotDirectory, "07-desktop-dock-overlay.png", screenshotFailures);
+
+            ClickDockByName(automation, "Open Task Switcher");
+            CapturePhysicalScreen(screenshotDirectory, "08-task-switcher.png", screenshotFailures);
         }
         finally
         {
@@ -89,12 +101,52 @@ public sealed class CoreDeskSmokeTests
         Thread.Sleep(500);
     }
 
+    private static void ClickAnyByName(Window window, string name)
+    {
+        var element = WaitForAnyElementByName(window, name, TimeSpan.FromSeconds(5));
+        Assert.NotNull(element);
+        element.Click();
+        Thread.Sleep(500);
+    }
+
+    private static void EnterTextByName(Window window, string name, string value)
+    {
+        var element = WaitForElementByName(window, name, ControlType.Edit, TimeSpan.FromSeconds(5));
+        Assert.NotNull(element);
+        var textBox = element.AsTextBox();
+        textBox.Focus();
+        textBox.Text = value;
+        Thread.Sleep(700);
+    }
+
     private static AutomationElement? WaitForElementByName(Window window, string name, TimeSpan timeout)
+    {
+        return WaitForElementByName(window, name, ControlType.Button, timeout);
+    }
+
+    private static AutomationElement? WaitForElementByName(Window window, string name, ControlType controlType, TimeSpan timeout)
     {
         var end = DateTimeOffset.UtcNow + timeout;
         while (DateTimeOffset.UtcNow < end)
         {
-            var element = window.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)));
+            var element = window.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(controlType)));
+            if (element is not null)
+            {
+                return element;
+            }
+
+            Thread.Sleep(250);
+        }
+
+        return null;
+    }
+
+    private static AutomationElement? WaitForAnyElementByName(Window window, string name, TimeSpan timeout)
+    {
+        var end = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < end)
+        {
+            var element = window.FindFirstDescendant(cf => cf.ByName(name));
             if (element is not null)
             {
                 return element;
@@ -120,7 +172,8 @@ public sealed class CoreDeskSmokeTests
         Assert.True(bitmap.Height >= 1600, $"Physical screenshot height was only {bitmap.Height}px.");
 
         var isDesktopOverlay = fileName.Contains("desktop-dock-overlay", StringComparison.OrdinalIgnoreCase);
-        var readabilityFailure = isDesktopOverlay ? null : GetReadabilityFailure(bitmap);
+        var isTaskSwitcher = fileName.Contains("task-switcher", StringComparison.OrdinalIgnoreCase);
+        var readabilityFailure = isDesktopOverlay || isTaskSwitcher ? null : GetReadabilityFailure(bitmap);
         if (readabilityFailure is not null)
         {
             failures.Add($"{fileName}: {readabilityFailure}");
@@ -144,6 +197,15 @@ public sealed class CoreDeskSmokeTests
             }
         }
 
+        if (isTaskSwitcher)
+        {
+            var taskSwitcherFailure = GetTaskSwitcherFailure(bitmap);
+            if (taskSwitcherFailure is not null)
+            {
+                failures.Add($"{fileName}: {taskSwitcherFailure}");
+            }
+        }
+
         bitmap.Save(Path.Combine(directory, fileName), System.Drawing.Imaging.ImageFormat.Png);
     }
 
@@ -161,6 +223,26 @@ public sealed class CoreDeskSmokeTests
             Thread.Sleep(600);
             return;
         }
+    }
+
+    private static void ClickDockByName(UIA3Automation automation, string name)
+    {
+        var end = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTimeOffset.UtcNow < end)
+        {
+            var desktop = automation.GetDesktop();
+            var button = desktop.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(ControlType.Button)))?.AsButton();
+            if (button is not null)
+            {
+                button.Invoke();
+                Thread.Sleep(1400);
+                return;
+            }
+
+            Thread.Sleep(250);
+        }
+
+        Assert.Fail($"Dock button '{name}' was not found.");
     }
 
     private static void AssertCoreDeskIsForeground()
@@ -302,6 +384,51 @@ public sealed class CoreDeskSmokeTests
         if (averageLuminance > 205 && veryBright > sampled * 0.35 && averageSpread < 30)
         {
             return "Desktop overlay dock is still rendering as a flat white block instead of liquid glass.";
+        }
+
+        return null;
+    }
+
+    private static string? GetTaskSwitcherFailure(Bitmap bitmap)
+    {
+        var region = new Rectangle(
+            (int)(bitmap.Width * 0.03),
+            (int)(bitmap.Height * 0.12),
+            (int)(bitmap.Width * 0.48),
+            (int)(bitmap.Height * 0.52));
+        var sampled = 0;
+        var bright = 0;
+        var blueIndicators = 0;
+        var stepX = Math.Max(1, region.Width / 120);
+        var stepY = Math.Max(1, region.Height / 80);
+
+        for (var y = region.Top; y < region.Bottom; y += stepY)
+        {
+            for (var x = region.Left; x < region.Right; x += stepX)
+            {
+                var color = bitmap.GetPixel(x, y);
+                var luminance = (color.R * 0.2126) + (color.G * 0.7152) + (color.B * 0.0722);
+                sampled++;
+                if (luminance > 190)
+                {
+                    bright++;
+                }
+
+                if (color.B > 180 && color.G > 95 && color.R < 55)
+                {
+                    blueIndicators++;
+                }
+            }
+        }
+
+        if (bright < sampled * 0.03)
+        {
+            return "Task switcher did not render visible app cards.";
+        }
+
+        if (blueIndicators < 2)
+        {
+            return "Task switcher did not render running-app indicators.";
         }
 
         return null;

@@ -543,21 +543,28 @@ public sealed partial class ShellViewModel(
 
         foreach (var app in pinnedApps)
         {
-            var isRunning = runningIds.Contains(app.Id);
-            PinnedDockItems.Add(new DockItemViewModel(app, isRunning));
+            var running = runningApps.FirstOrDefault(candidate => DockRunningAppMatcher.IsRunningMatch(app, candidate));
+            var isRunning = running is not null || runningIds.Contains(app.Id);
+            PinnedDockItems.Add(CreateDockItem(app, isRunning, running));
             DockApps.Add(app);
             if (isRunning)
             {
-                TaskSwitcherItems.Add(new DockItemViewModel(app, true));
+                TaskSwitcherItems.Add(CreateDockItem(app, true, running));
             }
         }
 
         foreach (var app in _allApps.Where(app => runningIds.Contains(app.Id) && !pinnedIds.Contains(app.Id)).Take(6))
         {
-            var item = new DockItemViewModel(app, true);
+            var running = runningApps.FirstOrDefault(candidate => DockRunningAppMatcher.IsRunningMatch(app, candidate));
+            var item = CreateDockItem(app, true, running);
             RunningDockItems.Add(item);
             TaskSwitcherItems.Add(item);
         }
+    }
+
+    private static DockItemViewModel CreateDockItem(AppEntry app, bool isRunning, RunningAppEntry? running)
+    {
+        return new DockItemViewModel(app, isRunning, running?.WindowTitle, running?.PreviewPath);
     }
 
     private IEnumerable<AppEntry> AppsByIds(IEnumerable<string> ids)

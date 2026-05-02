@@ -129,7 +129,8 @@
                             Width="150"
                             Height="174"
                             Padding="8"
-                            Spacing="10">
+                            Spacing="10"
+                            AutomationProperties.Name="{x:Bind DisplayName, Mode=OneWay}">
                             <Border
                                 Width="108"
                                 Height="108"
@@ -332,17 +333,27 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Border Height="64" Padding="18,0" Background="#F2FFFFFF" BorderBrush="#44FFFFFF" BorderThickness="1" CornerRadius="22">
-                        <TextBox
-                            PlaceholderText="{x:Bind ViewModel.SearchPlaceholder}"
-                            Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            FontSize="20"
-                            BorderThickness="0"
-                            Background="Transparent"
-                            Foreground="#FF101820"
-                            PlaceholderForeground="#99101820"
-                            MinHeight="54"
-                            VerticalAlignment="Center"
-                            VerticalContentAlignment="Center" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE721;" FontSize="20" Foreground="#99101820" VerticalAlignment="Center" />
+                            <TextBox
+                                Grid.Column="1"
+                                AutomationProperties.Name="App Drawer Search"
+                                PlaceholderText="{x:Bind ViewModel.SearchPlaceholder}"
+                                Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                FontSize="20"
+                                BorderThickness="0"
+                                Background="Transparent"
+                                Foreground="#FF101820"
+                                PlaceholderForeground="#99101820"
+                                Height="52"
+                                Padding="0"
+                                VerticalAlignment="Center"
+                                VerticalContentAlignment="Center" />
+                        </Grid>
                     </Border>
                     <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseDrawerCommand}" Width="64" Height="64" Padding="0" AutomationProperties.Name="Close App Drawer">
                         <FontIcon Glyph="&#xE711;" />
@@ -562,7 +573,7 @@
                     </RadialGradientBrush>
                 </Grid.Background>
             </Grid>
-            <Grid Padding="96,70,96,178" RowSpacing="28">
+            <Grid Padding="88,58,88,160" RowSpacing="24">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -573,8 +584,8 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel>
-                        <TextBlock Text="App Switcher" FontSize="38" FontWeight="SemiBold" Foreground="White" />
-                        <TextBlock Text="Running apps" FontSize="17" Foreground="#D9FFFFFF" />
+                        <TextBlock Text="App Switcher" FontSize="34" FontWeight="SemiBold" Foreground="White" />
+                        <TextBlock Text="Running apps" FontSize="16" Foreground="#D9FFFFFF" />
                     </StackPanel>
                     <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseTaskSwitcherCommand}" Width="56" Height="56" Padding="0" Background="#2EFFFFFF" BorderBrush="#42FFFFFF" CornerRadius="28" AutomationProperties.Name="Close Task Switcher">
                         <FontIcon Glyph="&#xE711;" FontSize="18" />
@@ -584,37 +595,54 @@
                     <ItemsControl ItemsSource="{x:Bind ViewModel.TaskSwitcherItems, Mode=OneWay}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <ItemsWrapGrid Orientation="Vertical" MaximumRowsOrColumns="2" ItemWidth="310" ItemHeight="252" />
+                                <ItemsWrapGrid Orientation="Vertical" MaximumRowsOrColumns="2" ItemWidth="430" ItemHeight="330" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="viewModels:DockItemViewModel">
-                                <Button Width="292" Height="236" Margin="9,8" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnDockAppClick" Tag="{x:Bind}">
+                                <Button Width="410" Height="312" Margin="10,8" Padding="0" Background="Transparent" BorderBrush="Transparent" BorderThickness="0" Click="OnDockAppClick" Tag="{x:Bind}">
                                     <Grid>
                                         <Border
-                                            Margin="0,10,0,0"
-                                            Background="#26000000"
-                                            CornerRadius="30" />
-                                        <Border Padding="16" Background="#E8F4F8FB" BorderBrush="#7DFFFFFF" BorderThickness="1" CornerRadius="30">
-                                            <Grid RowSpacing="13">
+                                            Margin="0,12,0,0"
+                                            Background="#33000000"
+                                            CornerRadius="34" />
+                                        <Border Background="#EAF4F8FB" BorderBrush="#8DFFFFFF" BorderThickness="1" CornerRadius="34">
+                                            <Grid RowSpacing="0">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="*" />
-                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="58" />
                                                 </Grid.RowDefinitions>
-                                                <Border Background="{x:Bind IconPath, Converter={StaticResource IconPathToBrushConverter}, Mode=OneWay}" CornerRadius="23">
+                                                <Border Margin="10,10,10,0" Background="#FF17222E" CornerRadius="26">
                                                     <Grid>
-                                                        <Border Margin="14" Background="#30FFFFFF" CornerRadius="18" />
-                                                        <FontIcon Glyph="&#xECAA;" FontSize="48" Foreground="#EFFFFFFF" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
-                                                        <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Margin="46" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                                        <Image
+                                                            Source="{x:Bind PreviewPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}"
+                                                            Stretch="UniformToFill"
+                                                            Visibility="{x:Bind PreviewPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                                        <Border
+                                                            Background="{x:Bind IconPath, Converter={StaticResource IconPathToBrushConverter}, Mode=OneWay}"
+                                                            Visibility="{x:Bind PreviewPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}">
+                                                            <Grid>
+                                                                <Border Margin="34" Background="#24FFFFFF" CornerRadius="24" />
+                                                                <FontIcon Glyph="&#xECAA;" FontSize="58" Foreground="#EFFFFFFF" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
+                                                                <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Margin="74" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                                            </Grid>
+                                                        </Border>
                                                     </Grid>
                                                 </Border>
-                                                <Grid Grid.Row="1" ColumnSpacing="10">
+                                                <Grid Grid.Row="1" Margin="18,0,18,0" ColumnSpacing="12">
                                                     <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="38" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="{x:Bind DisplayName}" FontSize="16" FontWeight="SemiBold" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Foreground="#FF111820" />
-                                                    <Border Grid.Column="1" Width="9" Height="9" VerticalAlignment="Center" Background="#FF0A84FF" CornerRadius="4.5" />
+                                                    <Border Width="34" Height="34" Background="{x:Bind IconPath, Converter={StaticResource IconPathToBrushConverter}, Mode=OneWay}" CornerRadius="9">
+                                                        <Grid>
+                                                            <FontIcon Glyph="&#xECAA;" FontSize="16" Foreground="#EFFFFFFF" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert, Mode=OneWay}" />
+                                                            <Image Source="{x:Bind IconPath, Converter={StaticResource IconPathToImageSourceConverter}, Mode=OneWay}" Margin="5" Stretch="Uniform" Visibility="{x:Bind IconPath, Converter={StaticResource IconPathToVisibilityConverter}, Mode=OneWay}" />
+                                                        </Grid>
+                                                    </Border>
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayName}" FontSize="16" FontWeight="SemiBold" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Foreground="#FF111820" VerticalAlignment="Center" />
+                                                    <Border Grid.Column="2" Width="9" Height="9" VerticalAlignment="Center" Background="#FF0A84FF" CornerRadius="4.5" />
                                                 </Grid>
                                             </Grid>
                                         </Border>

@@ -4,4 +4,5 @@ public sealed record RunningAppEntry(
     string ProcessName,
     string? ExecutablePath,
     string WindowTitle,
-    string? AppUserModelId = null);
+    string? AppUserModelId = null,
+    string? PreviewPath = null);

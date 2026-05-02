@@ -90,10 +90,10 @@ public sealed partial class DockOverlayWindow : Window
             + Math.Clamp(ViewModel.RunningDockItems.Count, 0, 7)
             + 4;
         var buttonSize = (int)Math.Round(ViewModel.DockButtonSize);
-        var requestedWidth = 40 + (dockItemCount * buttonSize) + Math.Max(0, dockItemCount - 1) * 12 + 18;
-        var width = Math.Clamp(requestedWidth, 560, Math.Min(1420, screenWidth - 180));
-        var height = Math.Clamp(buttonSize + 34, 116, 132);
-        AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 26, width, height));
+        var requestedWidth = 36 + (dockItemCount * buttonSize) + Math.Max(0, dockItemCount - 1) * 10 + 18;
+        var width = Math.Clamp(requestedWidth, 520, Math.Min(1320, screenWidth - 220));
+        var height = Math.Clamp(buttonSize + 28, 104, 122);
+        AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 22, width, height));
         ApplyRoundedWindowRegion(width, height);
     }
 
@@ -172,6 +172,11 @@ public sealed partial class DockOverlayWindow : Window
         App.ShowMainShell(openControlCenter: true);
     }
 
+    private void OnTaskSwitcherClick(object sender, RoutedEventArgs e)
+    {
+        App.ShowMainShell(openTaskSwitcher: true);
+    }
+
     private void OnRootPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         RaiseDock();
@@ -208,6 +213,15 @@ public sealed partial class DockOverlayWindow : Window
 
     private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_isGestureActive)
+        {
+            var currentY = e.GetCurrentPoint(Root).Position.Y;
+            if (_gestureStartY - currentY > 70)
+            {
+                App.ShowMainShell(openTaskSwitcher: true);
+            }
+        }
+
         _isGestureActive = false;
         Root.ReleasePointerCapture(e.Pointer);
         RestartAutoHide();
@@ -252,7 +266,7 @@ public sealed partial class DockOverlayWindow : Window
 
     private void ApplyRoundedWindowRegion(int width, int height)
     {
-        const int cornerDiameter = 84;
+        var cornerDiameter = Math.Min(height, 88);
         var region = CreateRoundRectRgn(0, 0, width + 1, height + 1, cornerDiameter, cornerDiameter);
         if (region == 0)
         {

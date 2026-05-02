@@ -1,6 +1,8 @@
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -9,6 +11,11 @@ namespace CoreDesk.Windows.AppDiscovery;
 public sealed class WindowsRunningAppService : IRunningAppService
 {
     private const int SW_RESTORE = 9;
+    private const int PW_RENDERFULLCONTENT = 2;
+    private static readonly string PreviewDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CoreDesk",
+        "WindowPreviews");
 
     public Task<IReadOnlyList<RunningAppEntry>> GetRunningAppsAsync(CancellationToken cancellationToken = default)
     {
@@ -41,7 +48,8 @@ public sealed class WindowsRunningAppService : IRunningAppService
 
                 var title = GetTitle(handle);
                 var executable = GetExecutablePath(process);
-                apps[processId] = new RunningAppEntry(process.ProcessName, executable, title);
+                var previewPath = TryCapturePreview(handle, processId);
+                apps[processId] = new RunningAppEntry(process.ProcessName, executable, title, PreviewPath: previewPath);
             }
             catch
             {
@@ -154,6 +162,54 @@ public sealed class WindowsRunningAppService : IRunningAppService
         }
     }
 
+    private static string? TryCapturePreview(IntPtr handle, uint processId)
+    {
+        if (!GetWindowRect(handle, out var rect))
+        {
+            return null;
+        }
+
+        var sourceWidth = rect.Right - rect.Left;
+        var sourceHeight = rect.Bottom - rect.Top;
+        if (sourceWidth < 160 || sourceHeight < 120)
+        {
+            return null;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(PreviewDirectory);
+            var path = Path.Combine(PreviewDirectory, $"{processId}.png");
+            using var source = new Bitmap(sourceWidth, sourceHeight, PixelFormat.Format32bppArgb);
+            using (var graphics = Graphics.FromImage(source))
+            {
+                var hdc = graphics.GetHdc();
+                var rendered = PrintWindow(handle, hdc, PW_RENDERFULLCONTENT);
+                graphics.ReleaseHdc(hdc);
+                if (!rendered)
+                {
+                    graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(sourceWidth, sourceHeight));
+                }
+            }
+
+            var targetWidth = 720;
+            var targetHeight = Math.Clamp((int)Math.Round(sourceHeight * (targetWidth / (double)sourceWidth)), 320, 520);
+            using var target = new Bitmap(targetWidth, targetHeight, PixelFormat.Format32bppArgb);
+            using (var graphics = Graphics.FromImage(target))
+            {
+                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                graphics.DrawImage(source, new Rectangle(0, 0, target.Width, target.Height));
+            }
+
+            target.Save(path, ImageFormat.Png);
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -176,4 +232,19 @@ public sealed class WindowsRunningAppService : IRunningAppService
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 }
