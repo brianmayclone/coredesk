@@ -1,3 +1,4 @@
+using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 using CoreDesk.Application.ViewModels;
 using System.Drawing;
@@ -12,8 +13,11 @@ public sealed class NativeDockForm : Form
     private readonly ShellViewModel _viewModel;
     private readonly IDiagnosticsService _diagnostics;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
+    private readonly System.Windows.Forms.Timer _visibilityTimer = new();
     private readonly Dictionary<string, Image> _iconCache = [];
     private readonly List<(Rectangle Bounds, DockItemViewModel Item)> _hitTargets = [];
+    private bool _initialized;
+    private bool _initializing;
 
     public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics)
     {
@@ -24,51 +28,110 @@ public sealed class NativeDockForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        BackColor = Color.FromArgb(24, 24, 24);
+        BackColor = TransparencyKeyColor;
+        TransparencyKey = TransparencyKeyColor;
         ShowIcon = false;
+        Text = "CoreDesk Dock";
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
-        InitializeDock();
-        ConfigureWindow();
+        PositionDock();
 
         _refreshTimer.Interval = 1200;
         _refreshTimer.Tick += (_, _) => RefreshDock();
         _refreshTimer.Start();
-    }
 
-    protected override bool ShowWithoutActivation => true;
+        _visibilityTimer.Interval = 250;
+        _visibilityTimer.Tick += (_, _) => ForceVisible();
+        _visibilityTimer.Start();
+    }
 
     protected override CreateParams CreateParams
     {
         get
         {
             var parameters = base.CreateParams;
-            parameters.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
+            parameters.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
             return parameters;
         }
     }
 
-    private void InitializeDock()
+    protected override void OnShown(EventArgs e)
     {
-        _viewModel.InitializeAsync().GetAwaiter().GetResult();
+        base.OnShown(e);
+        ForceVisible();
+        _diagnostics.Info($"Native dock window shown before initialization. Handle={Handle}; Bounds={Bounds.Left},{Bounds.Top},{Bounds.Width},{Bounds.Height}; Visible={Visible}; TopMost={TopMost}.");
+        BeginInvoke(new Action(async () =>
+        {
+            try
+            {
+                await EnsureInitializedAsync();
+                ConfigureWindow();
+                ForceVisible();
+                _diagnostics.Info($"Native dock initialized. Handle={Handle}; Bounds={Bounds.Left},{Bounds.Top},{Bounds.Width},{Bounds.Height}; Visible={Visible}; TopMost={TopMost}; Pinned={_viewModel.PinnedDockItems.Count}; Running={_viewModel.RunningDockItems.Count}.");
+            }
+            catch (Exception exception)
+            {
+                _diagnostics.Error(exception, "Native dock initialization failed after window was shown.");
+            }
+        }));
+    }
+
+    private async Task EnsureInitializedAsync()
+    {
+        if (_initialized || _initializing)
+        {
+            return;
+        }
+
+        try
+        {
+            _initializing = true;
+            await _viewModel.InitializeAsync();
+            _initialized = true;
+        }
+        finally
+        {
+            _initializing = false;
+        }
+
         RefreshDock();
     }
 
     private void ConfigureWindow()
     {
         PositionDock();
-        ConfigureDwmBackdrop(Handle);
-        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
         Invalidate();
+    }
+
+    public void ForceVisible()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        if (!Visible)
+        {
+            Show();
+        }
+
+        TopMost = true;
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
     }
 
     private void RefreshDock()
     {
         try
         {
+            if (!_initialized)
+            {
+                return;
+            }
+
             _viewModel.Tick();
             PositionDock();
-            NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+            ForceVisible();
             Invalidate();
         }
         catch (Exception exception)
@@ -80,24 +143,21 @@ public sealed class NativeDockForm : Form
     private void PositionDock()
     {
         var screen = Screen.PrimaryScreen!.Bounds;
-        var itemCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 1, 10)
-            + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 5);
-        var desiredWidth = Math.Clamp(28 + (itemCount * 48) + (Math.Max(0, itemCount - 1) * 12), 340, Math.Min(820, screen.Width - 240));
-        var desiredHeight = 92;
+        var metrics = GetMetrics();
+        var desiredWidth = Math.Min(metrics.WindowWidth, screen.Width - (metrics.ScreenInset * 2));
+        var desiredHeight = metrics.WindowHeight;
         Bounds = new Rectangle(
             screen.Left + ((screen.Width - desiredWidth) / 2),
-            screen.Bottom - desiredHeight - 24,
+            screen.Bottom - desiredHeight - metrics.BottomInset,
             desiredWidth,
             desiredHeight);
-        Region?.Dispose();
-        Region = new Region(RoundedRect(new Rectangle(0, 0, Width, Height), 22));
-        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
     }
 
     protected override void OnMouseEnter(EventArgs e)
     {
         base.OnMouseEnter(e);
-        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        ForceVisible();
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -110,12 +170,32 @@ public sealed class NativeDockForm : Form
                 continue;
             }
 
-            if (_viewModel.OpenDockItemCommand.CanExecute(target.Item))
-            {
-                _viewModel.OpenDockItemCommand.Execute(target.Item);
-            }
+            _ = OpenDockItemAsync(target.Item);
 
             return;
+        }
+    }
+
+    private async Task OpenDockItemAsync(DockItemViewModel item)
+    {
+        try
+        {
+            Cursor = Cursors.Default;
+            UseWaitCursor = false;
+            if (_viewModel.OpenDockItemCommand.CanExecute(item))
+            {
+                await _viewModel.OpenDockItemCommand.ExecuteAsync(item);
+            }
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.Error(exception, $"Opening dock item '{item.DisplayName}' failed.");
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+            UseWaitCursor = false;
+            ForceVisible();
         }
     }
 
@@ -126,63 +206,152 @@ public sealed class NativeDockForm : Form
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
         graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.Clear(Color.Transparent);
+        graphics.Clear(TransparencyKeyColor);
         _hitTargets.Clear();
 
-        var dockSurface = new Rectangle(7, 9, Width - 14, 70);
-        using var path = RoundedRect(dockSurface, 18);
+        var metrics = GetMetrics();
+        var dockSurface = new Rectangle(metrics.SideShadow, metrics.TopShadow, Width - (metrics.SideShadow * 2), metrics.DockHeight);
+        using var path = RoundedRect(dockSurface, metrics.CornerRadius);
         DrawSoftShadow(graphics, dockSurface);
 
         using var glass = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(188, 88, 26, 45),
-            Color.FromArgb(168, 55, 15, 32),
+            Color.FromArgb(172, 74, 36, 52),
+            Color.FromArgb(138, 36, 18, 28),
             90f);
         using var sheen = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(78, 255, 255, 255),
-            Color.FromArgb(12, 255, 255, 255),
+            Color.FromArgb(112, 255, 255, 255),
+            Color.FromArgb(8, 255, 255, 255),
             90f);
-        using var stroke = new Pen(Color.FromArgb(82, 255, 255, 255), 1f);
+        using var stroke = new Pen(Color.FromArgb(92, 255, 255, 255), Math.Max(1f, metrics.DpiScale));
 
         graphics.FillPath(glass, path);
         graphics.FillPath(sheen, path);
         graphics.DrawPath(stroke, path);
-        using (var highlight = new Pen(Color.FromArgb(96, 255, 255, 255), 1f))
+        using (var highlight = new Pen(Color.FromArgb(112, 255, 255, 255), Math.Max(1f, metrics.DpiScale)))
         {
-            graphics.DrawLine(highlight, dockSurface.Left + 18, dockSurface.Top + 1, dockSurface.Right - 18, dockSurface.Top + 1);
+            graphics.DrawLine(highlight, dockSurface.Left + metrics.CornerRadius, dockSurface.Top + metrics.DpiScale, dockSurface.Right - metrics.CornerRadius, dockSurface.Top + metrics.DpiScale);
         }
 
-        var itemCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 1, 10)
-            + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 5);
-        var contentWidth = (itemCount * 48) + (Math.Max(0, itemCount - 1) * 12);
+        var itemCount = metrics.VisualItemCount;
+        var contentWidth = (itemCount * metrics.IconSlot) + (Math.Max(0, itemCount - 1) * metrics.ItemGap);
         var x = (Width - contentWidth) / 2;
-        var y = dockSurface.Top + 10;
-        DrawItems(graphics, _viewModel.PinnedDockItems, ref x, y, pinned: true);
+        var y = dockSurface.Top + ((dockSurface.Height - metrics.IconSlot) / 2);
+        if (!_initialized || _viewModel.PinnedDockItems.Count == 0)
+        {
+            DrawFallbackItems(graphics, metrics, ref x, y, interactive: true);
+            return;
+        }
+
+        var drawnCount = DrawItems(graphics, _viewModel.PinnedDockItems, metrics, ref x, y, pinned: true);
 
         if (_viewModel.RunningDockItems.Count > 0)
         {
-            x += 12;
+            x += metrics.SeparatorGap;
         }
 
-        DrawItems(graphics, _viewModel.RunningDockItems, ref x, y, pinned: false);
+        drawnCount += DrawItems(graphics, _viewModel.RunningDockItems, metrics, ref x, y, pinned: false);
+
+        var missingCount = Math.Max(0, metrics.VisualItemCount - drawnCount);
+        if (missingCount > 0)
+        {
+            DrawFallbackItems(graphics, metrics, ref x, y, interactive: false, skip: drawnCount, take: missingCount);
+        }
     }
 
-    private void DrawItems(Graphics graphics, IEnumerable<DockItemViewModel> items, ref int x, int y, bool pinned)
+    private int GetDockItemCount()
     {
-        foreach (var item in items.Take(pinned ? 10 : 5))
+        if (!_initialized || _viewModel.PinnedDockItems.Count == 0)
         {
-            var bounds = new Rectangle(x, y, 48, 54);
+            return 8;
+        }
+
+        return Math.Clamp(_viewModel.PinnedDockItems.Count, 1, 8)
+            + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
+    }
+
+    private DockMetrics GetMetrics()
+    {
+        var scale = Math.Clamp(DeviceDpi / 96f, 1f, 2.5f);
+        var iconSlot = Scale(86, scale);
+        var iconSize = Scale(72, scale);
+        var itemGap = Scale(13, scale);
+        var sidePadding = Scale(26, scale);
+        var itemCount = Math.Max(8, GetDockItemCount());
+        var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap);
+        var dockWidth = contentWidth + (sidePadding * 2);
+        var sideShadow = Scale(17, scale);
+
+        return new DockMetrics(
+            scale,
+            itemCount,
+            iconSlot,
+            iconSize,
+            itemGap,
+            Scale(18, scale),
+            Math.Max(Scale(38, scale), iconSize / 2),
+            Scale(8, scale),
+            Scale(3, scale),
+            Scale(9, scale),
+            Scale(18, scale),
+            Math.Max(Scale(108, scale), iconSlot + Scale(24, scale)),
+            dockWidth + (sideShadow * 2),
+            Math.Max(Scale(144, scale), iconSlot + Scale(58, scale)),
+            Scale(18, scale),
+            Scale(34, scale),
+            sideShadow);
+    }
+
+    private static int Scale(int value, float scale) => Math.Max(1, (int)Math.Round(value * scale));
+
+    private void DrawFallbackItems(Graphics graphics, DockMetrics metrics, ref int x, int y, bool interactive, int skip = 0, int? take = null)
+    {
+        var items = new[]
+        {
+            ("Messages", SystemGlyph.Messages, Color.FromArgb(255, 39, 215, 80)),
+            ("Safari", SystemGlyph.Safari, Color.FromArgb(255, 0, 122, 255)),
+            ("Music", SystemGlyph.Music, Color.FromArgb(255, 255, 45, 85)),
+            ("Mail", SystemGlyph.Mail, Color.FromArgb(255, 0, 145, 255)),
+            ("Files", SystemGlyph.Files, Color.FromArgb(255, 0, 122, 255)),
+            ("Photos", SystemGlyph.Photos, Color.FromArgb(255, 255, 149, 0)),
+            ("News", SystemGlyph.News, Color.FromArgb(255, 255, 59, 48)),
+            ("Notes", SystemGlyph.Notes, Color.FromArgb(255, 255, 204, 0))
+        };
+
+        foreach (var item in items.Skip(skip).Take(take ?? items.Length))
+        {
+            var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
+            var iconBounds = Centered(bounds, metrics.IconSize);
+            DrawFallbackAppIcon(graphics, iconBounds, item.Item3, item.Item2);
+            if (interactive)
+            {
+                _hitTargets.Add((bounds, new DockItemViewModel(new AppEntry(item.Item1, item.Item1, AppKind.SystemAction), false)));
+            }
+
+            x += metrics.IconSlot + metrics.ItemGap;
+        }
+    }
+
+    private int DrawItems(Graphics graphics, IEnumerable<DockItemViewModel> items, DockMetrics metrics, ref int x, int y, bool pinned)
+    {
+        var count = 0;
+        foreach (var item in items.Take(pinned ? 8 : 4))
+        {
+            var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
             _hitTargets.Add((bounds, item));
-            DrawIcon(graphics, item, new Rectangle(x + 2, y, 44, 44));
+            DrawIcon(graphics, item, Centered(bounds, metrics.IconSize));
             if (item.IsRunning || !pinned)
             {
                 using var indicator = new SolidBrush(Color.FromArgb(255, 10, 132, 255));
-                graphics.FillRoundedRectangle(indicator, new Rectangle(x + 20, y + 49, 8, 3), 2);
+                graphics.FillRoundedRectangle(indicator, new Rectangle(x + ((metrics.IconSlot - metrics.RunningIndicatorWidth) / 2), y + metrics.IconSlot - metrics.RunningIndicatorTopInset, metrics.RunningIndicatorWidth, metrics.RunningIndicatorHeight), metrics.RunningIndicatorHeight);
             }
 
-            x += 60;
+            x += metrics.IconSlot + metrics.ItemGap;
+            count++;
         }
+
+        return count;
     }
 
     private void DrawIcon(Graphics graphics, DockItemViewModel item, Rectangle bounds)
@@ -194,10 +363,176 @@ public sealed class NativeDockForm : Form
             return;
         }
 
-        using var fallbackBrush = new SolidBrush(Color.FromArgb(235, 246, 248, 250));
-        using var fallbackPen = new Pen(Color.FromArgb(120, 20, 30, 42), 1f);
-        graphics.FillEllipse(fallbackBrush, bounds);
-        graphics.DrawEllipse(fallbackPen, bounds);
+        DrawFallbackAppIcon(graphics, bounds, ColorFromName(item.DisplayName), GlyphFromName(item.DisplayName));
+    }
+
+    private static Rectangle Centered(Rectangle outer, int size)
+    {
+        return new Rectangle(outer.Left + ((outer.Width - size) / 2), outer.Top + ((outer.Height - size) / 2), size, size);
+    }
+
+    private static void DrawFallbackAppIcon(Graphics graphics, Rectangle bounds, Color color, SystemGlyph glyph)
+    {
+        using var path = RoundedRect(bounds, Math.Max(12, bounds.Width / 5));
+        using var brush = new LinearGradientBrush(bounds, ControlPaint.Light(color, 0.24f), ControlPaint.Dark(color, 0.08f), 90f);
+        using var pen = new Pen(Color.FromArgb(80, 255, 255, 255), 1f);
+        graphics.FillPath(brush, path);
+        graphics.DrawPath(pen, path);
+        DrawSystemGlyph(graphics, bounds, glyph);
+    }
+
+    private static void DrawSystemGlyph(Graphics graphics, Rectangle bounds, SystemGlyph glyph)
+    {
+        using var whiteBrush = new SolidBrush(Color.White);
+        using var softBrush = new SolidBrush(Color.FromArgb(230, 255, 255, 255));
+        using var whitePen = new Pen(Color.White, Math.Max(2f, bounds.Width * 0.055f))
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round
+        };
+        using var darkPen = new Pen(Color.FromArgb(80, 30, 35, 44), Math.Max(1f, bounds.Width * 0.025f));
+        var r = bounds;
+        var unit = r.Width / 100f;
+
+        switch (glyph)
+        {
+            case SystemGlyph.Messages:
+                using (var bubble = RoundedRect(Rectangle.Round(new RectangleF(r.Left + (20 * unit), r.Top + (23 * unit), 60 * unit, 43 * unit)), (int)(18 * unit)))
+                {
+                    graphics.FillPath(whiteBrush, bubble);
+                }
+                var tail = new PointF[]
+                {
+                    new(r.Left + (42 * unit), r.Top + (62 * unit)),
+                    new(r.Left + (34 * unit), r.Top + (76 * unit)),
+                    new(r.Left + (55 * unit), r.Top + (64 * unit))
+                };
+                graphics.FillPolygon(whiteBrush, tail);
+                break;
+            case SystemGlyph.Safari:
+                graphics.FillEllipse(whiteBrush, r.Left + (22 * unit), r.Top + (20 * unit), 56 * unit, 56 * unit);
+                graphics.DrawEllipse(darkPen, r.Left + (31 * unit), r.Top + (29 * unit), 38 * unit, 38 * unit);
+                using (var needle = new SolidBrush(Color.FromArgb(255, 255, 59, 48)))
+                {
+                    graphics.FillPolygon(needle, [new PointF(r.Left + (52 * unit), r.Top + (27 * unit)), new PointF(r.Left + (61 * unit), r.Top + (55 * unit)), new PointF(r.Left + (47 * unit), r.Top + (50 * unit))]);
+                }
+                break;
+            case SystemGlyph.Music:
+                graphics.DrawLine(whitePen, r.Left + (60 * unit), r.Top + (24 * unit), r.Left + (60 * unit), r.Top + (62 * unit));
+                graphics.DrawLine(whitePen, r.Left + (60 * unit), r.Top + (25 * unit), r.Left + (35 * unit), r.Top + (30 * unit));
+                graphics.FillEllipse(whiteBrush, r.Left + (27 * unit), r.Top + (58 * unit), 25 * unit, 20 * unit);
+                break;
+            case SystemGlyph.Mail:
+                using (var envelope = RoundedRect(Rectangle.Round(new RectangleF(r.Left + (19 * unit), r.Top + (27 * unit), 62 * unit, 46 * unit)), (int)(8 * unit)))
+                {
+                    graphics.FillPath(softBrush, envelope);
+                }
+                graphics.DrawLine(darkPen, r.Left + (22 * unit), r.Top + (31 * unit), r.Left + (50 * unit), r.Top + (53 * unit));
+                graphics.DrawLine(darkPen, r.Left + (78 * unit), r.Top + (31 * unit), r.Left + (50 * unit), r.Top + (53 * unit));
+                break;
+            case SystemGlyph.Files:
+                using (var folderBack = RoundedRect(Rectangle.Round(new RectangleF(r.Left + (18 * unit), r.Top + (30 * unit), 64 * unit, 43 * unit)), (int)(8 * unit)))
+                using (var tab = RoundedRect(Rectangle.Round(new RectangleF(r.Left + (22 * unit), r.Top + (24 * unit), 30 * unit, 16 * unit)), (int)(6 * unit)))
+                using (var tabBrush = new SolidBrush(Color.FromArgb(255, 255, 222, 87)))
+                {
+                    graphics.FillPath(tabBrush, tab);
+                    graphics.FillPath(whiteBrush, folderBack);
+                }
+                break;
+            case SystemGlyph.Photos:
+                var colors = new[]
+                {
+                    Color.FromArgb(255, 255, 59, 48), Color.FromArgb(255, 255, 149, 0), Color.FromArgb(255, 255, 204, 0),
+                    Color.FromArgb(255, 52, 199, 89), Color.FromArgb(255, 90, 200, 250), Color.FromArgb(255, 0, 122, 255),
+                    Color.FromArgb(255, 175, 82, 222), Color.FromArgb(255, 255, 45, 85)
+                };
+                for (var index = 0; index < colors.Length; index++)
+                {
+                    using var petal = new SolidBrush(colors[index]);
+                    var angle = index * 45 * Math.PI / 180;
+                    var cx = r.Left + (50 * unit) + (float)Math.Cos(angle) * 17 * unit;
+                    var cy = r.Top + (50 * unit) + (float)Math.Sin(angle) * 17 * unit;
+                    graphics.FillEllipse(petal, cx - (10 * unit), cy - (10 * unit), 20 * unit, 20 * unit);
+                }
+                graphics.FillEllipse(whiteBrush, r.Left + (42 * unit), r.Top + (42 * unit), 16 * unit, 16 * unit);
+                break;
+            case SystemGlyph.News:
+                using (var font = new Font("Segoe UI", Math.Max(16, r.Width * 0.54f), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    graphics.DrawString("N", font, whiteBrush, r, format);
+                }
+                break;
+            case SystemGlyph.Notes:
+                graphics.FillRectangle(whiteBrush, r.Left + (22 * unit), r.Top + (27 * unit), 56 * unit, 48 * unit);
+                using (var yellow = new SolidBrush(Color.FromArgb(255, 255, 204, 0)))
+                {
+                    graphics.FillRectangle(yellow, r.Left + (22 * unit), r.Top + (27 * unit), 56 * unit, 15 * unit);
+                }
+                graphics.DrawLine(darkPen, r.Left + (31 * unit), r.Top + (52 * unit), r.Left + (69 * unit), r.Top + (52 * unit));
+                graphics.DrawLine(darkPen, r.Left + (31 * unit), r.Top + (63 * unit), r.Left + (63 * unit), r.Top + (63 * unit));
+                break;
+            case SystemGlyph.Settings:
+                graphics.DrawEllipse(whitePen, r.Left + (30 * unit), r.Top + (30 * unit), 40 * unit, 40 * unit);
+                graphics.FillEllipse(whiteBrush, r.Left + (43 * unit), r.Top + (43 * unit), 14 * unit, 14 * unit);
+                break;
+        }
+    }
+
+    private static Color ColorFromName(string value)
+    {
+        var hash = value.Aggregate(17, (current, character) => (current * 31) + character);
+        var palette = new[]
+        {
+            Color.FromArgb(255, 0, 122, 255),
+            Color.FromArgb(255, 52, 199, 89),
+            Color.FromArgb(255, 255, 149, 0),
+            Color.FromArgb(255, 175, 82, 222),
+            Color.FromArgb(255, 255, 59, 48),
+            Color.FromArgb(255, 90, 200, 250)
+        };
+        return palette[Math.Abs(hash) % palette.Length];
+    }
+
+    private static SystemGlyph GlyphFromName(string value)
+    {
+        if (value.Contains("edge", StringComparison.OrdinalIgnoreCase) || value.Contains("browser", StringComparison.OrdinalIgnoreCase) || value.Contains("web", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Safari;
+        }
+
+        if (value.Contains("mail", StringComparison.OrdinalIgnoreCase) || value.Contains("outlook", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Mail;
+        }
+
+        if (value.Contains("explorer", StringComparison.OrdinalIgnoreCase) || value.Contains("file", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Files;
+        }
+
+        if (value.Contains("photo", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Photos;
+        }
+
+        if (value.Contains("music", StringComparison.OrdinalIgnoreCase) || value.Contains("media", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Music;
+        }
+
+        if (value.Contains("setting", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Settings;
+        }
+
+        if (value.Contains("note", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemGlyph.Notes;
+        }
+
+        return SystemGlyph.News;
     }
 
     private Image? LoadIcon(string? path)
@@ -226,13 +561,13 @@ public sealed class NativeDockForm : Form
 
     private static void DrawSoftShadow(Graphics graphics, Rectangle surface)
     {
-        for (var index = 0; index < 5; index++)
+        for (var index = 0; index < 8; index++)
         {
-            var alpha = 34 - (index * 6);
-            var shadowRect = Rectangle.Inflate(surface, index * 2, index);
-            shadowRect.Offset(0, 5 + index);
+            var alpha = 42 - (index * 4);
+            var shadowRect = Rectangle.Inflate(surface, index * 3, index * 2);
+            shadowRect.Offset(0, 6 + index);
             using var shadow = new SolidBrush(Color.FromArgb(Math.Max(6, alpha), 0, 0, 0));
-            using var shadowPath = RoundedRect(shadowRect, 18 + index);
+            using var shadowPath = RoundedRect(shadowRect, Math.Max(18, surface.Height / 2) + index);
             graphics.FillPath(shadow, shadowPath);
         }
     }
@@ -299,6 +634,7 @@ public sealed class NativeDockForm : Form
         if (disposing)
         {
             _refreshTimer.Dispose();
+            _visibilityTimer.Dispose();
             foreach (var image in _iconCache.Values)
             {
                 image.Dispose();
@@ -309,11 +645,10 @@ public sealed class NativeDockForm : Form
     }
 
     private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private static readonly Color TransparencyKeyColor = Color.FromArgb(1, 2, 3);
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
-    private const int WS_EX_NOACTIVATE = 0x08000000;
     private const uint SWP_SHOWWINDOW = 0x0040;
-    private const uint SWP_NOACTIVATE = 0x0010;
     private const int DWMWA_USE_HOSTBACKDROPBRUSH = 17;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWA_BORDER_COLOR = 34;
@@ -339,6 +674,38 @@ public sealed class NativeDockForm : Form
         public int Attribute;
         public IntPtr Data;
         public int SizeOfData;
+    }
+
+    private sealed record DockMetrics(
+        float DpiScale,
+        int VisualItemCount,
+        int IconSlot,
+        int IconSize,
+        int ItemGap,
+        int SeparatorGap,
+        int CornerRadius,
+        int RunningIndicatorWidth,
+        int RunningIndicatorHeight,
+        int RunningIndicatorTopInset,
+        int TopShadow,
+        int DockHeight,
+        int WindowWidth,
+        int WindowHeight,
+        int BottomInset,
+        int ScreenInset,
+        int SideShadow);
+
+    private enum SystemGlyph
+    {
+        Messages,
+        Safari,
+        Music,
+        Mail,
+        Files,
+        Photos,
+        News,
+        Notes,
+        Settings
     }
 
     private static class NativeMethods

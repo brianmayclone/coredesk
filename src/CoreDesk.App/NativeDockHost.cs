@@ -91,7 +91,12 @@ public sealed class NativeDockHost : IDisposable
 
     private static string BuildDockArguments()
     {
-        var args = new List<string>();
+        var args = new List<string>
+        {
+            "--parent-pid",
+            Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+
         if (App.Services.Options.Diagnostics)
         {
             args.Add("--diagnostics");
