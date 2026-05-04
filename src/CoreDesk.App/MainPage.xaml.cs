@@ -134,7 +134,35 @@ public sealed partial class MainPage : Page
 
         if (e.ClickedItem is AppEntry app)
         {
+            if (ReferenceEquals(sender, FolderGrid))
+            {
+                ViewModel.CloseFolderCommand.Execute(null);
+                Bindings.Update();
+            }
+
             await ViewModel.LaunchAppCommand.ExecuteAsync(app);
+        }
+    }
+
+    private async void OnHomeTileTapped(object sender, TappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+
+        if (sender is not FrameworkElement { DataContext: HomeTileViewModel tile })
+        {
+            return;
+        }
+
+        if (tile.App is { } app)
+        {
+            await ViewModel.LaunchAppCommand.ExecuteAsync(app);
+            return;
+        }
+
+        if (tile.Folder is { } folder)
+        {
+            ViewModel.OpenFolderCommand.Execute(folder);
+            Bindings.Update();
         }
     }
 
@@ -510,6 +538,17 @@ public sealed partial class MainPage : Page
         {
             ViewModel.OpenFolderCommand.Execute(folder);
         }
+    }
+
+    private void OnFolderBackdropTapped(object sender, TappedRoutedEventArgs e)
+    {
+        ViewModel.CloseFolderCommand.Execute(null);
+        Bindings.Update();
+    }
+
+    private void OnFolderPanelTapped(object sender, TappedRoutedEventArgs e)
+    {
+        e.Handled = true;
     }
 
     public void OpenSettings()

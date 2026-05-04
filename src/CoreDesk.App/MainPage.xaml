@@ -106,8 +106,6 @@
                 DragLeave="OnHomeGridDragLeave"
                 Drop="OnHomeGridDrop"
                 Margin="0,22,0,24"
-                IsItemClickEnabled="True"
-                ItemClick="OnAppItemClick"
                 ItemsSource="{x:Bind ViewModel.HomeTiles, Mode=OneWay}"
                 SelectionMode="None">
                 <GridView.ItemContainerStyle>
@@ -132,6 +130,7 @@
                             PointerPressed="OnTilePointerPressed"
                             PointerReleased="OnTilePointerReleased"
                             PointerExited="OnTilePointerReleased"
+                            Tapped="OnHomeTileTapped"
                             RenderTransformOrigin="0.5,0.45"
                             AutomationProperties.Name="{x:Bind DisplayName, Mode=OneWay}">
                             <Border
@@ -328,6 +327,7 @@
 
         <Grid
             AutomationProperties.Name="CoreDesk Folder"
+            Tapped="OnFolderBackdropTapped"
             Visibility="{Binding IsFolderOpen, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.Background>
                 <AcrylicBrush TintColor="#101820" TintOpacity="0.55" TintLuminosityOpacity="0.55" FallbackColor="#AA101820" />
@@ -341,7 +341,8 @@
                 Background="#F2FFFFFF"
                 BorderBrush="#66FFFFFF"
                 BorderThickness="1"
-                CornerRadius="38">
+                CornerRadius="38"
+                Tapped="OnFolderPanelTapped">
                 <StackPanel Spacing="22">
                     <Grid>
                         <Grid.ColumnDefinitions>

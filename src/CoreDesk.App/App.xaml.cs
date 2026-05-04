@@ -12,6 +12,8 @@ public partial class App : Application
 
     public static StatusOverlayWindow? StatusWindow { get; private set; }
 
+    public static ControlCenterOverlayWindow? ControlCenterWindow { get; private set; }
+
     public static ShellViewModel ShellViewModel { get; private set; } = null!;
 
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
@@ -65,6 +67,7 @@ public partial class App : Application
             Window.Closed += (_, _) => RestoreSystemShell();
             DockWindow = new CompositionDockHost(ShellViewModel);
             StatusWindow = new StatusOverlayWindow(ShellViewModel);
+            ControlCenterWindow = new ControlCenterOverlayWindow(ShellViewModel);
             Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             _windowsKeyHook = new WindowsKeyHook();
@@ -255,6 +258,12 @@ public partial class App : Application
 
     public static void ShowMainShell(bool openDrawer = false, bool openSettings = false, bool openControlCenter = false, bool openTaskSwitcher = false)
     {
+        if (openControlCenter)
+        {
+            ShowControlCenterOverlay();
+            return;
+        }
+
         if (Window is not MainWindow mainWindow)
         {
             return;
@@ -277,14 +286,27 @@ public partial class App : Application
         {
             mainWindow.OpenSettings();
         }
-        else if (openControlCenter)
-        {
-            mainWindow.OpenControlCenter();
-        }
         else if (openTaskSwitcher)
         {
             mainWindow.OpenTaskSwitcher();
         }
+    }
+
+    public static void ShowControlCenterOverlay()
+    {
+        if (ControlCenterWindow is null)
+        {
+            return;
+        }
+
+        ShowStatusAndReserveWorkArea(homeMode: false);
+        ShowDockWhenReady(homeMode: false);
+        ControlCenterWindow.ShowOverlay();
+    }
+
+    public static void HideControlCenterOverlay()
+    {
+        ControlCenterWindow?.HideOverlay();
     }
 
     private static void OnShellModeChanged(object? sender, ShellMode mode)

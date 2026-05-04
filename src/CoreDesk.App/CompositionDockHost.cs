@@ -179,7 +179,7 @@ public sealed class CompositionDockHost : IDisposable
         }
 
         _iconHwnd = CreateWindowEx(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED,
             iconClassName,
             "CoreDesk Dock Icons",
             WS_POPUP,
@@ -728,6 +728,7 @@ public sealed class CompositionDockHost : IDisposable
         if (target.IsHome)
         {
             App.ShowMainShell();
+            MinimizeApplicationWindows();
             return;
         }
 
@@ -767,7 +768,7 @@ public sealed class CompositionDockHost : IDisposable
         }
     }
 
-    private void StartPressAnimation(Windows.Foundation.Point point)
+    private void StartPressAnimation(nint inputHwnd, Windows.Foundation.Point point)
     {
         var target = _hitTargets.FirstOrDefault(candidate => candidate.Bounds.Contains(point));
         if (target is null)
@@ -779,7 +780,7 @@ public sealed class CompositionDockHost : IDisposable
         _pressedVisualId = target.VisualId;
         _pressAnimationStartedAt = DateTime.UtcNow;
         RedrawIconOverlay();
-        _ = SetCapture(_hwnd);
+        _ = SetCapture(inputHwnd);
 
         if (_pressAnimationTimer is null)
         {
@@ -837,11 +838,6 @@ public sealed class CompositionDockHost : IDisposable
         RenderIconOverlay(metrics, dockRect);
     }
 
-    private static string GetTargetVisualId(DockHitTarget target)
-    {
-        return target.VisualId;
-    }
-
     private static string GetSlotVisualId(int index)
     {
         return $"slot:{index}";
@@ -868,14 +864,7 @@ public sealed class CompositionDockHost : IDisposable
             return;
         }
 
-        if (_homeMode)
-        {
-            _foregroundOverlapSince = null;
-            ShowDockAnimated();
-            return;
-        }
-
-        if (IsPointerAtRevealEdge())
+        if (IsPointerInDockInteractionZone())
         {
             _foregroundOverlapSince = null;
             ShowDockAnimated();
@@ -890,6 +879,8 @@ public sealed class CompositionDockHost : IDisposable
             return;
         }
 
+        // Home mode keeps the dock visible only while the desktop area is actually clear.
+        // If another app overlaps the dock zone, the dock behaves like the iPad dock and yields.
         if (_isAutoHidden)
         {
             return;
@@ -964,18 +955,36 @@ public sealed class CompositionDockHost : IDisposable
     private void SetDockWindowPosition(int top)
     {
         _top = top;
+        var moveFlags = SWP_NOACTIVATE | SWP_NOZORDER;
         if (_hwnd != 0)
         {
-            SetWindowPos(_hwnd, HWND_TOPMOST, _left, _top, _width, _height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            SetWindowPos(_hwnd, 0, _left, _top, _width, _height, moveFlags);
         }
 
         if (_iconHwnd != 0)
         {
-            SetWindowPos(_iconHwnd, HWND_TOPMOST, _left, _top, _width, _height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            SetWindowPos(_iconHwnd, 0, _left, _top, _width, _height, moveFlags);
         }
     }
 
-    private bool IsPointerAtRevealEdge()
+    private void MinimizeApplicationWindows()
+    {
+        var minimized = 0;
+        EnumWindows((handle, lParam) =>
+        {
+            if (ShouldIgnoreApplicationWindow(handle))
+            {
+                return true;
+            }
+
+            _ = ShowWindow(handle, SW_FORCEMINIMIZE);
+            minimized++;
+            return true;
+        }, 0);
+        App.Services.Diagnostics.Info($"Home dock button minimized {minimized} windows.");
+    }
+
+    private bool IsPointerInDockInteractionZone()
     {
         if (!GetCursorPos(out var point))
         {
@@ -985,9 +994,22 @@ public sealed class CompositionDockHost : IDisposable
         var screenWidth = GetSystemMetrics(SM_CXSCREEN);
         var screenHeight = GetSystemMetrics(SM_CYSCREEN);
         var horizontalInset = Math.Max(Scale(160, GetMetrics().DpiScale), _width / 5);
-        return point.Y >= screenHeight - 3
-            && point.X >= Math.Max(0, _left - horizontalInset)
+        var withinHorizontalZone = point.X >= Math.Max(0, _left - horizontalInset)
             && point.X <= Math.Min(screenWidth, _left + _width + horizontalInset);
+        if (!withinHorizontalZone)
+        {
+            return false;
+        }
+
+        var revealEdgeHeight = Math.Max(4, Scale(5, GetMetrics().DpiScale));
+        if (point.Y >= screenHeight - revealEdgeHeight)
+        {
+            return true;
+        }
+
+        var hoverTop = Math.Min(_top, _visibleTop) - Scale(10, GetMetrics().DpiScale);
+        var hoverBottom = Math.Max(_top + _height, _visibleTop + _height) + Scale(4, GetMetrics().DpiScale);
+        return point.Y >= hoverTop && point.Y <= hoverBottom;
     }
 
     private bool HasVisibleWindowInDockWorkArea()
@@ -1021,6 +1043,11 @@ public sealed class CompositionDockHost : IDisposable
     }
 
     private bool ShouldIgnoreOverlapWindow(nint handle)
+    {
+        return ShouldIgnoreApplicationWindow(handle);
+    }
+
+    private bool ShouldIgnoreApplicationWindow(nint handle)
     {
         if (handle == 0 || handle == _hwnd || handle == _iconHwnd || !IsWindowVisible(handle) || IsIconic(handle))
         {
@@ -1090,7 +1117,7 @@ public sealed class CompositionDockHost : IDisposable
             case WM_NCHITTEST:
                 return HTCLIENT;
             case WM_LBUTTONDOWN:
-                StartPressAnimation(GetPointFromLParam(lParam));
+                StartPressAnimation(hwnd, GetPointFromLParam(lParam));
                 return 0;
             case WM_LBUTTONUP:
                 CompletePress(GetPointFromLParam(lParam));
@@ -1098,7 +1125,7 @@ public sealed class CompositionDockHost : IDisposable
             case WM_POINTERDOWN:
                 if (TryGetPointerPoint(wParam, out var pressedPoint))
                 {
-                    StartPressAnimation(pressedPoint);
+                    StartPressAnimation(hwnd, pressedPoint);
                     if (_isAutoHidden)
                     {
                         ShowDockAnimated();
@@ -1143,9 +1170,52 @@ public sealed class CompositionDockHost : IDisposable
 
     private nint IconWindowProcedure(nint hwnd, uint message, nuint wParam, nint lParam)
     {
-        if (message == WM_DESTROY && hwnd == _iconHwnd)
+        switch (message)
         {
-            _iconHwnd = 0;
+            case WM_NCHITTEST:
+                return HTCLIENT;
+            case WM_LBUTTONDOWN:
+                StartPressAnimation(hwnd, GetPointFromLParam(lParam));
+                return 0;
+            case WM_LBUTTONUP:
+                CompletePress(GetPointFromLParam(lParam));
+                return 0;
+            case WM_POINTERDOWN:
+                if (TryGetPointerPointForWindow(hwnd, wParam, out var pressedPoint))
+                {
+                    StartPressAnimation(hwnd, pressedPoint);
+                    if (_isAutoHidden)
+                    {
+                        ShowDockAnimated();
+                    }
+
+                    return 0;
+                }
+
+                break;
+            case WM_POINTERUP:
+                if (TryGetPointerPointForWindow(hwnd, wParam, out var pointerPoint))
+                {
+                    CompletePress(pointerPoint);
+                    return 0;
+                }
+
+                break;
+            case WM_MOUSEMOVE:
+            case WM_POINTERUPDATE:
+                if (_isAutoHidden)
+                {
+                    ShowDockAnimated();
+                }
+
+                break;
+            case WM_DESTROY:
+                if (hwnd == _iconHwnd)
+                {
+                    _iconHwnd = 0;
+                }
+
+                return 0;
         }
 
         return DefWindowProc(hwnd, message, wParam, lParam);
@@ -1226,11 +1296,16 @@ public sealed class CompositionDockHost : IDisposable
 
     private bool TryGetPointerPoint(nuint wParam, out Windows.Foundation.Point point)
     {
+        return TryGetPointerPointForWindow(_hwnd, wParam, out point);
+    }
+
+    private bool TryGetPointerPointForWindow(nint hwnd, nuint wParam, out Windows.Foundation.Point point)
+    {
         var pointerId = (uint)(wParam & 0xFFFF);
         if (GetPointerInfo(pointerId, out var info))
         {
             var nativePoint = info.PixelLocation;
-            _ = ScreenToClient(_hwnd, ref nativePoint);
+            _ = ScreenToClient(hwnd, ref nativePoint);
             point = new Windows.Foundation.Point(nativePoint.X, nativePoint.Y);
             return true;
         }
@@ -1439,12 +1514,14 @@ public sealed class CompositionDockHost : IDisposable
     private const int GWL_EXSTYLE = -20;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;
     private const uint ULW_ALPHA = 0x00000002;
     private const byte AC_SRC_OVER = 0x00;
     private const byte AC_SRC_ALPHA = 0x01;
     private const int SW_SHOWNOACTIVATE = 4;
+    private const int SW_FORCEMINIMIZE = 11;
     private const int SM_CXSCREEN = 0;
     private const int SM_CYSCREEN = 1;
     private const uint WM_DESTROY = 0x0002;
