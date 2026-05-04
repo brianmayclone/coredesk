@@ -71,8 +71,10 @@ public sealed partial class MainWindow : Window
             presenter.IsMinimizable = false;
         }
 
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        SetPopupWindowStyle(handle);
         AppWindow.MoveAndResize(new RectInt32(0, 0, GetSystemMetrics(0), GetSystemMetrics(1)));
-        HideDwmChrome(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        HideDwmChrome(handle);
     }
 
     public void ConfigureAsDesktopLayer()
@@ -106,6 +108,14 @@ public sealed partial class MainWindow : Window
         _ = DwmSetWindowAttribute(handle, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
     }
 
+    private static void SetPopupWindowStyle(nint handle)
+    {
+        var style = GetWindowLongPtr(handle, GWL_STYLE);
+        style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+        style |= WS_POPUP;
+        SetWindowLongPtr(handle, GWL_STYLE, style);
+    }
+
     private static bool IsControlAltPressed()
     {
         var control = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control);
@@ -120,6 +130,13 @@ public sealed partial class MainWindow : Window
     private static readonly nint HWND_BOTTOM = new(1);
     private static readonly nint HWND_TOP = new(0);
     private const int GWL_EXSTYLE = -20;
+    private const int GWL_STYLE = -16;
+    private const int WS_POPUP = unchecked((int)0x80000000);
+    private const int WS_CAPTION = 0x00C00000;
+    private const int WS_THICKFRAME = 0x00040000;
+    private const int WS_MINIMIZEBOX = 0x00020000;
+    private const int WS_MAXIMIZEBOX = 0x00010000;
+    private const int WS_SYSMENU = 0x00080000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const uint SWP_NOMOVE = 0x0002;

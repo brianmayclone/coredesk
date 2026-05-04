@@ -17,6 +17,15 @@ public sealed class DockOnlySystemIntegrationService(IDiagnosticsService diagnos
         diagnostics.Info($"Dock-only taskbar request ignored: {visible}.");
     }
 
+    public void ReserveTopWorkArea(IntPtr ownerWindowHandle, int reservedPixels)
+    {
+        diagnostics.Info($"Dock-only work area request ignored: {reservedPixels}.");
+    }
+
+    public void RestoreWorkArea()
+    {
+    }
+
     public void ShowTrayIcon()
     {
     }

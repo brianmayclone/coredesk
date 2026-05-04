@@ -8,12 +8,16 @@ namespace CoreDesk_App;
 
 public sealed partial class StatusOverlayWindow : Window
 {
+    public const int ReservedHeight = 38;
+
     private readonly DispatcherTimer _clock = new();
     private readonly DispatcherTimer _foregroundMonitor = new();
     private bool _initialized;
     private bool _homeMode = true;
 
     public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
+
+    public nint WindowHandle => WinRT.Interop.WindowNative.GetWindowHandle(this);
 
     public StatusOverlayWindow()
     {
@@ -69,15 +73,17 @@ public sealed partial class StatusOverlayWindow : Window
         }
 
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        SetPopupWindowStyle(handle);
         var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
         SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        HideDwmBorder(handle);
         PositionWindow();
         AppWindow.Hide();
     }
 
     private void PositionWindow()
     {
-        AppWindow.MoveAndResize(new RectInt32(0, 0, GetSystemMetrics(0), 38));
+        AppWindow.MoveAndResize(new RectInt32(0, 0, GetSystemMetrics(0), ReservedHeight));
     }
 
     private void ApplyForegroundStyle()
@@ -100,6 +106,22 @@ public sealed partial class StatusOverlayWindow : Window
     private void KeepTopMost()
     {
         SetWindowPos(WinRT.Interop.WindowNative.GetWindowHandle(this), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    private static void SetPopupWindowStyle(nint handle)
+    {
+        var style = GetWindowLongPtr(handle, GWL_STYLE);
+        style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+        style |= WS_POPUP;
+        SetWindowLongPtr(handle, GWL_STYLE, style);
+    }
+
+    private static void HideDwmBorder(nint handle)
+    {
+        var cornerPreference = DWMWCP_DONOTROUND;
+        _ = DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
+        var borderColor = DWMWA_COLOR_NONE;
+        _ = DwmSetWindowAttribute(handle, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
     }
 
     private static bool IsForegroundLargeNonCoreDeskWindow()
@@ -142,10 +164,21 @@ public sealed partial class StatusOverlayWindow : Window
 
     private static readonly nint HWND_TOPMOST = new(-1);
     private const int GWL_EXSTYLE = -20;
+    private const int GWL_STYLE = -16;
+    private const int WS_POPUP = unchecked((int)0x80000000);
+    private const int WS_CAPTION = 0x00C00000;
+    private const int WS_THICKFRAME = 0x00040000;
+    private const int WS_MINIMIZEBOX = 0x00020000;
+    private const int WS_MAXIMIZEBOX = 0x00010000;
+    private const int WS_SYSMENU = 0x00080000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
     private const int WS_EX_TRANSPARENT = 0x00000020;
     private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWA_BORDER_COLOR = 34;
+    private const int DWMWCP_DONOTROUND = 1;
+    private const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
@@ -170,6 +203,9 @@ public sealed partial class StatusOverlayWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint hWnd, out NativeRect lpRect);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect

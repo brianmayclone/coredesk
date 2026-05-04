@@ -32,6 +32,21 @@ public sealed class MockIntegrationTests
     }
 
     [Fact]
+    public void MockSystemIntegration_RoundTripsReservedWorkArea()
+    {
+        var diagnostics = new FileDiagnosticsService(new LaunchOptions { Diagnostics = true });
+        var integration = new MockSystemIntegrationService(diagnostics);
+
+        integration.ReserveTopWorkArea(IntPtr.Zero, 38);
+
+        Assert.Equal(38, integration.ReservedTopWorkAreaPixels);
+
+        integration.RestoreWorkArea();
+
+        Assert.Equal(0, integration.ReservedTopWorkAreaPixels);
+    }
+
+    [Fact]
     public void MockShellReplacementService_RoundTripsSessionReplacement()
     {
         var shellReplacement = new MockShellReplacementService();

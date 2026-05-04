@@ -19,6 +19,7 @@ public partial class App : Application
     public static AppComposition Services { get; private set; } = null!;
 
     private static DispatcherTimer? _desktopLayerEnforcer;
+    private static WindowsKeyHook? _windowsKeyHook;
 
     public App()
     {
@@ -59,6 +60,8 @@ public partial class App : Application
             StatusWindow = new StatusOverlayWindow();
             Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            _windowsKeyHook = new WindowsKeyHook();
+            _windowsKeyHook.Install();
             WireHardwareModeSwitching();
             if (Services.Options.ReplaceExplorerForSession)
             {
@@ -69,6 +72,7 @@ public partial class App : Application
             Window.Activate();
             StatusWindow.ShowStatus(homeMode: true);
             DockWindow.ShowDock(homeMode: true);
+            Services.SystemIntegration.ReserveTopWorkArea(StatusWindow.WindowHandle, StatusOverlayWindow.ReservedHeight);
             if (Window is MainWindow desktopWindow)
             {
                 desktopWindow.ConfigureAsDesktopLayer();
@@ -81,6 +85,7 @@ public partial class App : Application
         catch (Exception exception)
         {
             Services?.SystemIntegration.SetTaskbarVisible(true);
+            Services?.SystemIntegration.RestoreWorkArea();
             Services?.ShellReplacement.RestoreExplorerForSession();
             Services?.Diagnostics.Error(exception, "Launch failed.");
             WriteFallbackCrashLog(exception);
@@ -224,7 +229,10 @@ public partial class App : Application
         try
         {
             Services?.SystemIntegration.SetTaskbarVisible(true);
+            Services?.SystemIntegration.RestoreWorkArea();
             Services?.ShellReplacement.RestoreExplorerForSession();
+            _windowsKeyHook?.Dispose();
+            _windowsKeyHook = null;
             DockWindow?.Close();
             StatusWindow?.Close();
             Services?.SystemIntegration.Dispose();

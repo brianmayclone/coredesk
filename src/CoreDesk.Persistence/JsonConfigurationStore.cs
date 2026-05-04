@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 
@@ -13,6 +14,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
 
     private readonly string _settingsPath;
     private readonly string _layoutPath;
+    private readonly string _mutexName;
 
     public JsonConfigurationStore()
         : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CoreDesk"))
@@ -24,6 +26,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
         Directory.CreateDirectory(rootDirectory);
         _settingsPath = Path.Combine(rootDirectory, "settings.json");
         _layoutPath = Path.Combine(rootDirectory, "layout.json");
+        _mutexName = $@"Global\CoreDesk.JsonConfigurationStore.{Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(rootDirectory).ToUpperInvariant())))[..16]}";
     }
 
     public async Task<CoreDeskSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
@@ -85,20 +88,57 @@ public sealed class JsonConfigurationStore : IConfigurationStore
         }
     }
 
-    private static async Task SaveAsync<T>(string path, T value, CancellationToken cancellationToken)
+    private async Task SaveAsync<T>(string path, T value, CancellationToken cancellationToken)
     {
-        if (File.Exists(path))
+        using var semaphore = new Semaphore(1, 1, _mutexName);
+        var hasLock = false;
+        try
         {
-            File.Copy(path, $"{path}.bak", overwrite: true);
-        }
+            hasLock = semaphore.WaitOne(TimeSpan.FromSeconds(8));
+            if (!hasLock)
+            {
+                throw new IOException($"Timed out waiting for CoreDesk configuration lock: {path}");
+            }
 
-        var tempPath = $"{path}.tmp";
-        await using (var stream = File.Create(tempPath))
+            if (File.Exists(path))
+            {
+                File.Copy(path, $"{path}.bak", overwrite: true);
+            }
+
+            var tempPath = $"{path}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+            await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                await JsonSerializer.SerializeAsync(stream, value, SerializerOptions, cancellationToken);
+            }
+
+            ReplaceFile(tempPath, path);
+        }
+        finally
         {
-            await JsonSerializer.SerializeAsync(stream, value, SerializerOptions, cancellationToken);
+            if (hasLock)
+            {
+                semaphore.Release();
+            }
         }
+    }
 
-        File.Move(tempPath, path, overwrite: true);
+    private static void ReplaceFile(string tempPath, string targetPath)
+    {
+        try
+        {
+            if (File.Exists(targetPath))
+            {
+                File.Replace(tempPath, targetPath, $"{targetPath}.replace-bak", ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(tempPath, targetPath);
+            }
+        }
+        catch
+        {
+            File.Move(tempPath, targetPath, overwrite: true);
+        }
     }
 
     private static void MoveAside(string path)

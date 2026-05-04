@@ -10,6 +10,10 @@ public interface ISystemIntegrationService : IDisposable
 
     void SetTaskbarVisible(bool visible);
 
+    void ReserveTopWorkArea(IntPtr ownerWindowHandle, int reservedPixels);
+
+    void RestoreWorkArea();
+
     void ShowTrayIcon();
 
     void HideTrayIcon();

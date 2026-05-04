@@ -10,7 +10,11 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 {
     private const int SW_HIDE = 0;
     private const int SW_SHOW = 5;
+    private const int SM_CXSCREEN = 0;
     private const int SM_CYSCREEN = 1;
+    private const int SPI_SETWORKAREA = 0x002F;
+    private const int SPI_GETWORKAREA = 0x0030;
+    private const int SPIF_SENDCHANGE = 0x0002;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
 
@@ -18,6 +22,7 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private readonly IDiagnosticsService? diagnostics;
     private bool _disposed;
     private bool _taskbarSuppressed;
+    private NativeRect? _originalWorkArea;
     private readonly object _taskbarLock = new();
     private readonly Dictionary<IntPtr, NativeRect> _taskbarPositions = [];
     private readonly System.Threading.Timer _taskbarEnforcer;
@@ -66,6 +71,53 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         }
     }
 
+    public void ReserveTopWorkArea(IntPtr ownerWindowHandle, int reservedPixels)
+    {
+        var topInset = Math.Max(0, reservedPixels);
+        if (!SystemParametersInfoGetWorkArea(SPI_GETWORKAREA, 0, out var currentWorkArea, 0))
+        {
+            diagnostics?.Info("Failed to read current Windows work area.");
+            return;
+        }
+
+        _originalWorkArea ??= currentWorkArea;
+        var reservedWorkArea = new NativeRect
+        {
+            Left = 0,
+            Top = topInset,
+            Right = GetSystemMetrics(SM_CXSCREEN),
+            Bottom = GetSystemMetrics(SM_CYSCREEN)
+        };
+
+        if (SystemParametersInfoSetWorkArea(SPI_SETWORKAREA, 0, ref reservedWorkArea, SPIF_SENDCHANGE))
+        {
+            diagnostics?.Info($"Reserved top work area: {topInset}px.");
+        }
+        else
+        {
+            diagnostics?.Info("Failed to reserve Windows work area.");
+        }
+    }
+
+    public void RestoreWorkArea()
+    {
+        if (_originalWorkArea is not { } original)
+        {
+            return;
+        }
+
+        var restored = original;
+        if (SystemParametersInfoSetWorkArea(SPI_SETWORKAREA, 0, ref restored, SPIF_SENDCHANGE))
+        {
+            _originalWorkArea = null;
+            diagnostics?.Info("Restored Windows work area.");
+        }
+        else
+        {
+            diagnostics?.Info("Failed to restore Windows work area.");
+        }
+    }
+
     public void ShowTrayIcon()
     {
         if (_trayIcon is not null)
@@ -109,6 +161,7 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         _disposed = true;
         _taskbarEnforcer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         SetTaskbarVisible(true);
+        RestoreWorkArea();
         _taskbarEnforcer.Dispose();
         _trayIcon?.Dispose();
     }
@@ -202,6 +255,12 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    private static extern bool SystemParametersInfoGetWorkArea(int uiAction, int uiParam, out NativeRect pvParam, int fWinIni);
+
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    private static extern bool SystemParametersInfoSetWorkArea(int uiAction, int uiParam, ref NativeRect pvParam, int fWinIni);
 
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);

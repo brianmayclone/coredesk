@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace CoreDesk_App;
 
@@ -64,6 +65,7 @@ public sealed class NativeDockHost : IDisposable
         var dockPath = FindDockExecutable();
         if (dockPath is not null)
         {
+            dockPath = CopyDockToRuntimeDirectory(dockPath);
             return new ProcessStartInfo(dockPath)
             {
                 Arguments = BuildDockArguments(),
@@ -124,9 +126,23 @@ public sealed class NativeDockHost : IDisposable
             return null;
         }
 
-        return Directory
+        var architecture = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        var preferredRuntime = architecture switch
+        {
+            "x64" => "win-x64",
+            "x86" => "win-x86",
+            "arm64" => "win-arm64",
+            _ => "win-x64"
+        };
+
+        var candidates = Directory
             .EnumerateFiles(Path.Combine(root, "src", "CoreDesk.Dock", "bin"), "CoreDesk.Dock.exe", SearchOption.AllDirectories)
+            .ToList();
+
+        return candidates
+            .Where(path => path.Contains(preferredRuntime, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(File.GetLastWriteTimeUtc)
+            .Concat(candidates.OrderByDescending(File.GetLastWriteTimeUtc))
             .FirstOrDefault();
     }
 
@@ -161,5 +177,37 @@ public sealed class NativeDockHost : IDisposable
     private static string QuoteIfNeeded(string value)
     {
         return value.Contains(' ') ? $"\"{value}\"" : value;
+    }
+
+    private static string CopyDockToRuntimeDirectory(string dockExecutablePath)
+    {
+        try
+        {
+            var sourceDirectory = Path.GetDirectoryName(dockExecutablePath);
+            var root = FindRepositoryRoot();
+            if (sourceDirectory is null || root is null)
+            {
+                return dockExecutablePath;
+            }
+
+            var runtimeDirectory = Path.Combine(root, "artifacts", "runtime", "CoreDesk.Dock", $"{Environment.ProcessId}-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(runtimeDirectory);
+
+            foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
+                var destinationPath = Path.Combine(runtimeDirectory, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                File.Copy(sourcePath, destinationPath, overwrite: true);
+            }
+
+            var runtimeExecutable = Path.Combine(runtimeDirectory, Path.GetFileName(dockExecutablePath));
+            return File.Exists(runtimeExecutable) ? runtimeExecutable : dockExecutablePath;
+        }
+        catch (Exception exception)
+        {
+            App.Services.Diagnostics.Error(exception, "Copying native dock to runtime directory failed.");
+            return dockExecutablePath;
+        }
     }
 }

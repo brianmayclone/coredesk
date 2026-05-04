@@ -9,6 +9,8 @@ public sealed class MockSystemIntegrationService(IDiagnosticsService diagnostics
 
     public bool IsTrayVisible { get; private set; }
 
+    public int ReservedTopWorkAreaPixels { get; private set; }
+
     public event EventHandler<SystemIntegrationCommand>? CommandRequested;
 
     public void Initialize()
@@ -20,6 +22,18 @@ public sealed class MockSystemIntegrationService(IDiagnosticsService diagnostics
     {
         IsTaskbarVisible = visible;
         diagnostics.Info($"Mock taskbar visible: {visible}");
+    }
+
+    public void ReserveTopWorkArea(IntPtr ownerWindowHandle, int reservedPixels)
+    {
+        ReservedTopWorkAreaPixels = Math.Max(0, reservedPixels);
+        diagnostics.Info($"Mock top work area reserved: {ReservedTopWorkAreaPixels}");
+    }
+
+    public void RestoreWorkArea()
+    {
+        ReservedTopWorkAreaPixels = 0;
+        diagnostics.Info("Mock work area restored.");
     }
 
     public void ShowTrayIcon()
@@ -37,6 +51,7 @@ public sealed class MockSystemIntegrationService(IDiagnosticsService diagnostics
     public void Dispose()
     {
         IsTaskbarVisible = true;
+        RestoreWorkArea();
     }
 
     public void Request(SystemIntegrationCommand command)
