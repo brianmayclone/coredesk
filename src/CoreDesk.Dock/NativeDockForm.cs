@@ -247,7 +247,7 @@ public sealed class NativeDockForm : Form
 
             _pressedTarget = target;
             _mouseDownLocation = e.Location;
-            _pressedVisualId = target.IsHome ? HomeDockItem.App.Id : target.Item.App.Id;
+            _pressedVisualId = target.Item.App.Id;
             _pressedVisualUntil = DateTime.UtcNow.AddMilliseconds(220);
             Invalidate();
             return;
@@ -262,7 +262,7 @@ public sealed class NativeDockForm : Form
             return;
         }
 
-        if (_pressedTarget.IsHome)
+        if (_pressedTarget.IsSystemAction)
         {
             return;
         }
@@ -299,6 +299,11 @@ public sealed class NativeDockForm : Form
             if (target.IsHome)
             {
                 ToggleHomeWindows();
+            }
+            else if (target.IsAppDrawer)
+            {
+                _viewModel.OpenDrawerCommand.Execute(null);
+                _diagnostics.Info("Native dock app drawer action requested.");
             }
             else
             {
@@ -707,11 +712,11 @@ public sealed class NativeDockForm : Form
     private int GetDockTargetIndex(Point point)
     {
         var metrics = GetMetrics();
-        var visualCount = Math.Min(Math.Max(0, metrics.VisualItemCount - 1 - (_isDragHoveringDock ? 1 : 0)), 8);
+        var systemItemCount = 2;
+        var visualCount = Math.Min(Math.Max(0, metrics.VisualItemCount - systemItemCount - (_isDragHoveringDock ? 1 : 0)), 8);
         var contentWidth = (visualCount * metrics.IconSlot) + (Math.Max(0, visualCount - 1) * metrics.ItemGap);
         var x = ((Width - ((metrics.VisualItemCount * metrics.IconSlot) + (Math.Max(0, metrics.VisualItemCount - 1) * metrics.ItemGap))) / 2)
-            + metrics.IconSlot
-            + metrics.ItemGap;
+            + ((metrics.IconSlot + metrics.ItemGap) * systemItemCount);
         for (var index = 0; index < visualCount; index++)
         {
             if (point.X < x + (metrics.IconSlot / 2))
@@ -772,6 +777,7 @@ public sealed class NativeDockForm : Form
         var x = (Width - contentWidth) / 2;
         var y = dockSurface.Top + ((dockSurface.Height - metrics.IconSlot) / 2);
         DrawHomeItem(graphics, metrics, ref x, y);
+        DrawAppDrawerItem(graphics, metrics, ref x, y);
 
         if (!_initialized)
         {
@@ -806,10 +812,10 @@ public sealed class NativeDockForm : Form
     {
         if (!_initialized)
         {
-            return RequiresRealData ? 1 : 9;
+            return RequiresRealData ? 2 : 10;
         }
 
-        var realItemCount = 1
+        var realItemCount = 2
             + Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8)
             + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
         if (_isDragHoveringDock)
@@ -864,6 +870,15 @@ public sealed class NativeDockForm : Form
         var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
         var target = new DockHitTarget(bounds, HomeDockItem, _hitTargets.Count, IsHome: true);
         DrawHomeIcon(graphics, ApplyPressedVisual(graphics, Centered(bounds, metrics.IconSize), metrics, IsPressedVisual(target)), metrics);
+        _hitTargets.Add(target);
+        x += metrics.IconSlot + metrics.ItemGap;
+    }
+
+    private void DrawAppDrawerItem(Graphics graphics, DockMetrics metrics, ref int x, int y)
+    {
+        var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
+        var target = new DockHitTarget(bounds, AppDrawerDockItem, _hitTargets.Count, IsAppDrawer: true);
+        DrawFallbackAppIcon(graphics, ApplyPressedVisual(graphics, Centered(bounds, metrics.IconSize), metrics, IsPressedVisual(target)), Color.FromArgb(255, 0, 122, 255), SystemGlyph.Apps);
         _hitTargets.Add(target);
         x += metrics.IconSlot + metrics.ItemGap;
     }
@@ -1319,6 +1334,21 @@ public sealed class NativeDockForm : Form
                 graphics.DrawEllipse(whitePen, r.Left + (30 * unit), r.Top + (30 * unit), 40 * unit, 40 * unit);
                 graphics.FillEllipse(whiteBrush, r.Left + (43 * unit), r.Top + (43 * unit), 14 * unit, 14 * unit);
                 break;
+            case SystemGlyph.Apps:
+                var dotSize = Math.Max(4, (int)(13 * unit));
+                var gap = Math.Max(4, (int)(13 * unit));
+                var cluster = (dotSize * 3) + (gap * 2);
+                var startX = r.Left + ((r.Width - cluster) / 2);
+                var startY = r.Top + ((r.Height - cluster) / 2);
+                for (var row = 0; row < 3; row++)
+                {
+                    for (var column = 0; column < 3; column++)
+                    {
+                        graphics.FillEllipse(whiteBrush, startX + (column * (dotSize + gap)), startY + (row * (dotSize + gap)), dotSize, dotSize);
+                    }
+                }
+
+                break;
         }
     }
 
@@ -1490,6 +1520,7 @@ public sealed class NativeDockForm : Form
 
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private static readonly DockItemViewModel HomeDockItem = new(new AppEntry("coredesk-home", "Home", AppKind.SystemAction), false);
+    private static readonly DockItemViewModel AppDrawerDockItem = new(new AppEntry("coredesk-app-drawer", "App Drawer", AppKind.SystemAction), false);
     private static readonly Color TransparencyKeyColor = Color.FromArgb(1, 2, 3);
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
@@ -1547,7 +1578,10 @@ public sealed class NativeDockForm : Form
         int ScreenInset,
         int SideShadow);
 
-    private sealed record DockHitTarget(Rectangle Bounds, DockItemViewModel Item, int Index, bool IsHome = false);
+    private sealed record DockHitTarget(Rectangle Bounds, DockItemViewModel Item, int Index, bool IsHome = false, bool IsAppDrawer = false)
+    {
+        public bool IsSystemAction => IsHome || IsAppDrawer;
+    }
 
     private enum SystemGlyph
     {
@@ -1559,7 +1593,8 @@ public sealed class NativeDockForm : Form
         Photos,
         News,
         Notes,
-        Settings
+        Settings,
+        Apps
     }
 
     private static class NativeMethods

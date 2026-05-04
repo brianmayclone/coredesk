@@ -253,7 +253,7 @@ public sealed class CompositionDockHost : IDisposable
         var sideShadow = Scale(28, scale);
         var pinnedItemCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8);
         var runningItemCount = Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
-        var itemCount = 1 + pinnedItemCount + runningItemCount;
+        var itemCount = 2 + pinnedItemCount + runningItemCount;
         var separatorGap = runningItemCount > 0 ? Scale(18, scale) : 0;
         var dropSlotExtent = ScaleDropSlot(iconSlot + itemGap);
         var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap) + separatorGap + dropSlotExtent;
@@ -328,6 +328,8 @@ public sealed class CompositionDockHost : IDisposable
         var y = (float)dockRect.Y + (((float)dockRect.Height - metrics.IconSlot) / 2f);
         AddHomeIcon(x, y, metrics, GetSlotVisualId(visualIndex++));
         x += metrics.IconSlot + metrics.ItemGap;
+        AddAppDrawerIcon(x, y, metrics, GetSlotVisualId(visualIndex++));
+        x += metrics.IconSlot + metrics.ItemGap;
 
         var appIndex = 0;
         ApplyDropSlotSpacing(ref x, appIndex, metrics);
@@ -360,17 +362,22 @@ public sealed class CompositionDockHost : IDisposable
 
     private void AddHomeIcon(float x, float y, DockMetrics metrics, string visualId)
     {
-        _hitTargets.Add(new DockHitTarget(new Windows.Foundation.Rect(x, y, metrics.IconSlot, metrics.IconSlot), null, true, visualId));
+        _hitTargets.Add(new DockHitTarget(new Windows.Foundation.Rect(x, y, metrics.IconSlot, metrics.IconSlot), null, DockSystemAction.Home, visualId));
+    }
+
+    private void AddAppDrawerIcon(float x, float y, DockMetrics metrics, string visualId)
+    {
+        _hitTargets.Add(new DockHitTarget(new Windows.Foundation.Rect(x, y, metrics.IconSlot, metrics.IconSlot), null, DockSystemAction.AppDrawer, visualId));
     }
 
     private void AddDockItem(DockItemViewModel item, float x, float y, DockMetrics metrics, string visualId)
     {
-        _hitTargets.Add(new DockHitTarget(new Windows.Foundation.Rect(x, y, metrics.IconSlot, metrics.IconSlot), item, false, visualId));
+        _hitTargets.Add(new DockHitTarget(new Windows.Foundation.Rect(x, y, metrics.IconSlot, metrics.IconSlot), item, DockSystemAction.None, visualId));
     }
 
     private static int GetDockContentWidth(DockMetrics metrics)
     {
-        var itemCount = 1 + Math.Max(0, metrics.PinnedItemCount) + Math.Max(0, metrics.RunningItemCount);
+        var itemCount = 2 + Math.Max(0, metrics.PinnedItemCount) + Math.Max(0, metrics.RunningItemCount);
         return (itemCount * metrics.IconSlot)
             + (Math.Max(0, itemCount - 1) * metrics.ItemGap)
             + (metrics.RunningItemCount > 0 ? metrics.SeparatorGap : 0)
@@ -431,6 +438,9 @@ public sealed class CompositionDockHost : IDisposable
             var y = (int)Math.Round(dockRect.Y + ((dockRect.Height - metrics.IconSlot) / 2f));
             var homeBounds = Centered(new System.Drawing.Rectangle(x, y, metrics.IconSlot, metrics.IconSlot), metrics.IconSize);
             DrawHomeIconOverlay(graphics, ApplyTapVisual(graphics, homeBounds, GetSlotVisualId(visualIndex++), metrics), metrics);
+            x += metrics.IconSlot + metrics.ItemGap;
+            var drawerBounds = Centered(new System.Drawing.Rectangle(x, y, metrics.IconSlot, metrics.IconSlot), metrics.IconSize);
+            DrawAppDrawerIconOverlay(graphics, ApplyTapVisual(graphics, drawerBounds, GetSlotVisualId(visualIndex++), metrics), metrics);
             x += metrics.IconSlot + metrics.ItemGap;
 
             var appIndex = 0;
@@ -587,6 +597,29 @@ public sealed class CompositionDockHost : IDisposable
         graphics.DrawLine(line, bounds.Left + (bounds.Width * 0.31f), bounds.Top + (bounds.Height * 0.50f), bounds.Left + (bounds.Width * 0.31f), bounds.Top + (bounds.Height * 0.76f));
         graphics.DrawLine(line, bounds.Left + (bounds.Width * 0.69f), bounds.Top + (bounds.Height * 0.50f), bounds.Left + (bounds.Width * 0.69f), bounds.Top + (bounds.Height * 0.76f));
         graphics.DrawLine(line, bounds.Left + (bounds.Width * 0.31f), bounds.Top + (bounds.Height * 0.76f), bounds.Left + (bounds.Width * 0.69f), bounds.Top + (bounds.Height * 0.76f));
+    }
+
+    private static void DrawAppDrawerIconOverlay(System.Drawing.Graphics graphics, System.Drawing.Rectangle bounds, DockMetrics metrics)
+    {
+        using var path = RoundedRect(bounds, Math.Max(12, bounds.Width / 5));
+        using var brush = new LinearGradientBrush(bounds, System.Drawing.Color.FromArgb(255, 0, 122, 255), System.Drawing.Color.FromArgb(255, 90, 200, 250), 90f);
+        using var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(78, 255, 255, 255), Math.Max(1f, metrics.DpiScale));
+        graphics.FillPath(brush, path);
+        graphics.DrawPath(pen, path);
+
+        using var dotBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(244, 255, 255, 255));
+        var dotSize = Math.Max(4, (int)Math.Round(bounds.Width * 0.13));
+        var gap = Math.Max(4, (int)Math.Round(bounds.Width * 0.13));
+        var cluster = (dotSize * 3) + (gap * 2);
+        var startX = bounds.Left + ((bounds.Width - cluster) / 2);
+        var startY = bounds.Top + ((bounds.Height - cluster) / 2);
+        for (var row = 0; row < 3; row++)
+        {
+            for (var column = 0; column < 3; column++)
+            {
+                graphics.FillEllipse(dotBrush, startX + (column * (dotSize + gap)), startY + (row * (dotSize + gap)), dotSize, dotSize);
+            }
+        }
     }
 
     private static void DrawFallbackIconOverlay(System.Drawing.Graphics graphics, System.Drawing.Rectangle bounds, string name)
@@ -797,10 +830,16 @@ public sealed class CompositionDockHost : IDisposable
 
     private async void ActivateTarget(DockHitTarget target)
     {
-        if (target.IsHome)
+        if (target.SystemAction == DockSystemAction.Home)
         {
             App.ShowMainShell();
             MinimizeApplicationWindows();
+            return;
+        }
+
+        if (target.SystemAction == DockSystemAction.AppDrawer)
+        {
+            App.ShowMainShell(openDrawer: true);
             return;
         }
 
@@ -912,7 +951,7 @@ public sealed class CompositionDockHost : IDisposable
 
     private void TryStartDockItemDrag(Windows.Foundation.Point point, nuint wParam)
     {
-        if (_pressedTarget is not { IsHome: false, Item: not null } pressedTarget || _dragStarted || (wParam & MK_LBUTTON) == 0)
+        if (_pressedTarget is not { SystemAction: DockSystemAction.None, Item: not null } pressedTarget || _dragStarted || (wParam & MK_LBUTTON) == 0)
         {
             return;
         }
@@ -1110,7 +1149,7 @@ public sealed class CompositionDockHost : IDisposable
     {
         var metrics = GetMetrics();
         var contentWidth = GetDockContentWidth(metrics);
-        var x = ((_width - contentWidth) / 2f) + metrics.IconSlot + metrics.ItemGap;
+        var x = ((_width - contentWidth) / 2f) + ((metrics.IconSlot + metrics.ItemGap) * 2);
         var pinnedCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8);
 
         for (var index = 0; index <= pinnedCount; index++)
@@ -1850,7 +1889,14 @@ public sealed class CompositionDockHost : IDisposable
         int RunningItemCount,
         int DropSlotExtent);
 
-    private sealed record DockHitTarget(Windows.Foundation.Rect Bounds, DockItemViewModel? Item, bool IsHome, string VisualId);
+    private sealed record DockHitTarget(Windows.Foundation.Rect Bounds, DockItemViewModel? Item, DockSystemAction SystemAction, string VisualId);
+
+    private enum DockSystemAction
+    {
+        None,
+        Home,
+        AppDrawer
+    }
 
     [ComImport]
     [Guid("29E691FA-4567-4DCA-B319-D0F207EB6807")]

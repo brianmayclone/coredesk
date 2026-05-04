@@ -341,6 +341,12 @@ public sealed partial class MainPage : Page
         e.Data.RequestedOperation = DataPackageOperation.Move;
         e.Data.Properties.Title = app.DisplayName;
         e.Data.SetText($"coredesk-app:{app.Id}");
+        if (ReferenceEquals(sender, DrawerGrid))
+        {
+            ViewModel.CloseDrawerCommand.Execute(null);
+            Bindings.Update();
+        }
+
         BeginHomeItemDrag();
     }
 
@@ -392,6 +398,8 @@ public sealed partial class MainPage : Page
         args.Data.Properties.Title = app.DisplayName;
         args.Data.SetText($"coredesk-app:{app.Id}");
         TrySetDragBitmap(args, app.IconPath);
+        ViewModel.CloseDrawerCommand.Execute(null);
+        Bindings.Update();
         BeginHomeItemDrag();
     }
 
