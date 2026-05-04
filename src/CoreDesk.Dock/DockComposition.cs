@@ -100,6 +100,7 @@ public sealed class DockComposition : IDisposable
             ShellMode,
             AppSearch,
             SystemStatus,
+            SystemIntegration,
             WidgetRegistry,
             HardwareMonitor,
             Wallpaper,

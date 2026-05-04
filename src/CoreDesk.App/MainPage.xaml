@@ -14,9 +14,6 @@
         x:Name="Root"
         AutomationProperties.Name="CoreDesk Homescreen"
         Background="Transparent"
-        PointerPressed="OnRootPointerPressed"
-        PointerReleased="OnRootPointerReleased"
-        PointerWheelChanged="OnRootPointerWheelChanged"
         SizeChanged="OnRootSizeChanged">
         <Grid>
             <Grid.Background>
@@ -54,21 +51,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <Grid ColumnSpacing="18" Margin="0,-18,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="{x:Bind ViewModel.CurrentTime, Mode=OneWay}" Foreground="White" FontSize="18" FontWeight="SemiBold" />
-                    <TextBlock Text="{x:Bind ViewModel.NetworkLabel, Mode=OneWay}" Foreground="#E6FFFFFF" FontSize="13" VerticalAlignment="Center" />
-                </StackPanel>
-
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
-                    <TextBlock Text="{x:Bind ViewModel.KeyboardLabel, Mode=OneWay}" Foreground="#E6FFFFFF" FontSize="13" VerticalAlignment="Center" />
-                    <TextBlock Text="{x:Bind ViewModel.BatteryLabel, Mode=OneWay}" Foreground="White" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                </StackPanel>
-            </Grid>
+            <Grid Height="0" />
 
             <ItemsControl
                 x:Name="WidgetsStrip"
@@ -142,6 +125,8 @@
                             Width="150"
                             Height="174"
                             Padding="8"
+                            CanDrag="True"
+                            DragStarting="OnHomeTileDragStarting"
                             Spacing="10"
                             PointerPressed="OnTilePointerPressed"
                             PointerReleased="OnTilePointerReleased"
@@ -239,11 +224,18 @@
                 </GridView.ItemTemplate>
             </GridView>
 
-            <StackPanel Grid.Row="3" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="9" Margin="0,0,0,154">
-                <Border Width="30" Height="8" Background="#FFFFFFFF" CornerRadius="4" />
-                <Border Width="8" Height="8" Background="#99FFFFFF" CornerRadius="4" />
-                <Border Width="8" Height="8" Background="#99FFFFFF" CornerRadius="4" />
-            </StackPanel>
+            <ItemsControl Grid.Row="3" HorizontalAlignment="Center" Margin="0,0,0,154" ItemsSource="{x:Bind ViewModel.PageIndicators, Mode=OneWay}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="9" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="viewModels:PageIndicatorViewModel">
+                        <Border Width="{x:Bind Width, Mode=OneWay}" Height="8" Background="#FFFFFFFF" Opacity="{x:Bind Opacity, Mode=OneWay}" CornerRadius="4" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
         </Grid>
 
@@ -307,6 +299,8 @@
                                 Width="154"
                                 Height="158"
                                 Padding="8"
+                                CanDrag="True"
+                                DragStarting="OnDrawerAppDragStarting"
                                 PointerPressed="OnTilePointerPressed"
                                 PointerReleased="OnTilePointerReleased"
                                 PointerExited="OnTilePointerReleased"
@@ -401,103 +395,142 @@
         <Grid
             AutomationProperties.Name="CoreDesk Control Center"
             Visibility="{Binding IsControlCenterOpen, Converter={StaticResource BoolToVisibilityConverter}}">
-            <Border HorizontalAlignment="Stretch" Background="#3D071018" />
+            <Border HorizontalAlignment="Stretch" Background="#33071018" Tapped="OnControlCenterBackdropTapped" />
             <Border
-                Width="560"
-                MaxWidth="620"
-                Margin="0,34,34,0"
-                Padding="24"
+                Width="{x:Bind ViewModel.ControlCenterWidth, Mode=OneWay}"
+                MinWidth="306"
+                Margin="0,38,36,0"
+                Padding="8"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Top"
-                BorderBrush="#80FFFFFF"
+                BorderBrush="#66FFFFFF"
                 BorderThickness="1"
-                CornerRadius="30">
+                CornerRadius="28">
                 <Border.Background>
-                    <AcrylicBrush TintColor="#17222E" TintOpacity="0.66" TintLuminosityOpacity="0.72" FallbackColor="#F017222E" />
+                    <AcrylicBrush TintColor="#9BA2A8" TintOpacity="0.42" TintLuminosityOpacity="0.72" FallbackColor="#D9959CA4" />
                 </Border.Background>
-                <Grid RowSpacing="18">
+                <Grid RowSpacing="8" ColumnSpacing="8">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="102" />
+                        <RowDefinition Height="54" />
+                        <RowDefinition Height="102" />
+                        <RowDefinition Height="54" />
+                        <RowDefinition Height="54" />
                     </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="102" />
+                        <ColumnDefinition Width="102" />
+                        <ColumnDefinition Width="86" />
+                    </Grid.ColumnDefinitions>
 
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="{x:Bind ViewModel.ControlCenterLabel}" FontSize="30" FontWeight="SemiBold" Foreground="White" />
-                            <TextBlock Text="{x:Bind ViewModel.ModeLabel, Mode=OneWay}" FontSize="14" Foreground="#CCFFFFFF" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseControlCenterCommand}" Width="50" Height="50" Padding="0" Background="#22FFFFFF" BorderBrush="#24FFFFFF" AutomationProperties.Name="Close Control Center">
-                            <FontIcon Glyph="&#xE711;" FontSize="18" />
-                        </Button>
-                    </Grid>
-
-                    <Grid Grid.Row="1" ColumnSpacing="12" RowSpacing="12">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="104" />
-                            <RowDefinition Height="104" />
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <Button Command="{x:Bind ViewModel.ToggleDesktopCommand}" Padding="18" Background="#22FFFFFF" BorderBrush="#26FFFFFF" AutomationProperties.Name="Desktop quick action">
-                            <StackPanel Spacing="9" HorizontalAlignment="Left">
-                                <FontIcon Glyph="&#xE7F4;" FontSize="28" />
-                                <TextBlock Text="{x:Bind ViewModel.DesktopLabel}" FontSize="16" FontWeight="SemiBold" />
+                    <Border Grid.ColumnSpan="2" Padding="8" Background="#5A313840" CornerRadius="22">
+                        <Grid RowSpacing="6" ColumnSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition />
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition />
+                            </Grid.ColumnDefinitions>
+                            <Button Width="43" Height="43" Padding="0" Background="#FF7F8A96" BorderBrush="#00FFFFFF" CornerRadius="22" Command="{x:Bind ViewModel.OpenAirplaneModeCommand}" AutomationProperties.Name="Airplane mode">
+                                <FontIcon Glyph="&#xE709;" FontSize="19" Foreground="White" />
+                            </Button>
+                            <Button Grid.Column="1" Width="43" Height="43" Padding="0" Background="#FF0A84FF" BorderBrush="#00FFFFFF" CornerRadius="22" Command="{x:Bind ViewModel.OpenWifiCommand}" AutomationProperties.Name="Wi-Fi">
+                                <FontIcon Glyph="&#xE701;" FontSize="19" Foreground="White" />
+                            </Button>
+                            <Button Grid.Row="1" Width="43" Height="43" Padding="0" Background="#FF0A84FF" BorderBrush="#00FFFFFF" CornerRadius="22" Command="{x:Bind ViewModel.OpenBluetoothCommand}" AutomationProperties.Name="Bluetooth">
+                                <FontIcon Glyph="&#xE702;" FontSize="19" Foreground="White" />
+                            </Button>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8BD;" FontSize="14" Foreground="#FF30D158" />
+                                <FontIcon Glyph="&#xE702;" FontSize="14" Foreground="#FF0A84FF" />
                             </StackPanel>
-                        </Button>
-                        <Button Grid.Column="1" Padding="18" Background="#22FFFFFF" BorderBrush="#26FFFFFF" AutomationProperties.Name="Wi-Fi quick action">
-                            <StackPanel Spacing="9" HorizontalAlignment="Left">
-                                <FontIcon Glyph="&#xE701;" FontSize="28" />
-                                <TextBlock Text="{x:Bind ViewModel.NetworkLabel, Mode=OneWay}" FontSize="16" FontWeight="SemiBold" />
-                            </StackPanel>
-                        </Button>
-                        <Button Grid.Row="1" Padding="18" Background="#22FFFFFF" BorderBrush="#26FFFFFF" AutomationProperties.Name="Bluetooth quick action">
-                            <StackPanel Spacing="9" HorizontalAlignment="Left">
-                                <FontIcon Glyph="&#xE702;" FontSize="28" />
-                                <TextBlock Text="Bluetooth" FontSize="16" FontWeight="SemiBold" />
-                            </StackPanel>
-                        </Button>
-                        <Button Grid.Row="1" Grid.Column="1" Padding="18" Background="#22FFFFFF" BorderBrush="#26FFFFFF" AutomationProperties.Name="Touch keyboard quick action">
-                            <StackPanel Spacing="9" HorizontalAlignment="Left">
-                                <FontIcon Glyph="&#xE765;" FontSize="28" />
-                                <TextBlock Text="{x:Bind ViewModel.KeyboardLabel, Mode=OneWay}" FontSize="16" FontWeight="SemiBold" />
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-
-                    <Border Grid.Row="2" Padding="20,18" Background="#2EFFFFFF" BorderBrush="#32FFFFFF" BorderThickness="1" CornerRadius="24">
-                        <StackPanel Spacing="16">
-                            <Grid>
-                                <TextBlock Text="Brightness" Foreground="White" FontSize="16" FontWeight="SemiBold" />
-                                <FontIcon Glyph="&#xE706;" HorizontalAlignment="Right" FontSize="22" Foreground="#CCFFFFFF" />
-                            </Grid>
-                            <Slider Minimum="0" Maximum="100" Value="72" AutomationProperties.Name="Brightness" />
-                            <Grid>
-                                <TextBlock Text="Volume" Foreground="White" FontSize="16" FontWeight="SemiBold" />
-                                <FontIcon Glyph="&#xE767;" HorizontalAlignment="Right" FontSize="22" Foreground="#CCFFFFFF" />
-                            </Grid>
-                            <Slider Minimum="0" Maximum="100" Value="48" AutomationProperties.Name="Volume" />
-                        </StackPanel>
+                        </Grid>
                     </Border>
 
-                    <Border Grid.Row="3" Padding="20,16" Background="#1FFFFFFF" BorderBrush="#2AFFFFFF" BorderThickness="1" CornerRadius="24">
-                        <Grid ColumnSpacing="16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="{x:Bind ViewModel.BatteryLabel, Mode=OneWay}" Foreground="White" FontSize="18" FontWeight="SemiBold" />
-                                <TextBlock Text="{x:Bind ViewModel.CurrentTime, Mode=OneWay}" Foreground="#CCFFFFFF" FontSize="14" />
+                    <Border Grid.Column="2" Padding="10,8" Background="#5A313840" CornerRadius="22">
+                        <Grid RowSpacing="5">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="34" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="24" />
+                            </Grid.RowDefinitions>
+                            <Button Width="34" Height="34" Padding="0" HorizontalAlignment="Right" Background="#FF3E6FA7" BorderBrush="#00FFFFFF" CornerRadius="17" Command="{x:Bind ViewModel.OpenDisplayCommand}" AutomationProperties.Name="Display output">
+                                <FontIcon Glyph="&#xE7F4;" FontSize="14" Foreground="White" />
+                            </Button>
+                            <TextBlock Grid.Row="1" Text="Not Playing" VerticalAlignment="Center" Foreground="#DFFFFFFF" FontSize="11" FontWeight="SemiBold" />
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="7">
+                                <FontIcon Glyph="&#xE100;" FontSize="12" Foreground="White" />
+                                <FontIcon Glyph="&#xE768;" FontSize="16" Foreground="White" />
+                                <FontIcon Glyph="&#xE101;" FontSize="12" Foreground="White" />
                             </StackPanel>
-                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.KeyboardLabel, Mode=OneWay}" VerticalAlignment="Center" Foreground="#E6FFFFFF" FontWeight="SemiBold" />
+                        </Grid>
+                    </Border>
+
+                    <Button Grid.Row="1" Width="54" Height="54" Padding="0" Background="#6A313840" BorderBrush="#00FFFFFF" CornerRadius="27" Command="{x:Bind ViewModel.LockScreenCommand}" AutomationProperties.Name="Lock screen">
+                        <FontIcon Glyph="&#xE72E;" FontSize="21" Foreground="White" />
+                    </Button>
+                    <Button Grid.Row="1" Grid.Column="1" Width="54" Height="54" Padding="0" Background="#6A313840" BorderBrush="#00FFFFFF" CornerRadius="27" Command="{x:Bind ViewModel.OpenDisplayCommand}" AutomationProperties.Name="Screen mirroring">
+                        <FontIcon Glyph="&#xE7F4;" FontSize="22" Foreground="White" />
+                    </Button>
+                    <Border Grid.Row="1" Grid.Column="2" Background="#6A313840" CornerRadius="22">
+                        <TextBlock Text="{x:Bind ViewModel.BatteryPercentLabel, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" FontSize="13" FontWeight="SemiBold" />
+                    </Border>
+
+                    <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#6A313840" CornerRadius="22">
+                        <Button Padding="13,0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent" BorderBrush="#00FFFFFF" Command="{x:Bind ViewModel.OpenFocusCommand}" AutomationProperties.Name="Focus">
+                            <StackPanel Orientation="Horizontal" Spacing="9">
+                                <Border Width="36" Height="36" Background="#FF4B5869" CornerRadius="18">
+                                    <FontIcon Glyph="&#xE708;" FontSize="18" Foreground="White" />
+                                </Border>
+                                <TextBlock Text="Focus" VerticalAlignment="Center" Foreground="White" FontSize="13" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Button>
+                    </Border>
+
+                    <Grid Grid.Row="2" Grid.Column="2" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition />
+                            <ColumnDefinition />
+                        </Grid.ColumnDefinitions>
+                        <Border Background="#74FFFFFF" CornerRadius="18">
+                            <Grid>
+                                <Border Height="{x:Bind ViewModel.BrightnessPercent, Mode=OneWay}" VerticalAlignment="Bottom" Background="#E8FFFFFF" CornerRadius="0,0,18,18" />
+                                <Slider x:Name="BrightnessSlider" Minimum="0" Maximum="100" Value="{x:Bind ViewModel.BrightnessPercent, Mode=OneWay}" Orientation="Vertical" Opacity="0.01" ValueChanged="OnBrightnessSliderValueChanged" AutomationProperties.Name="Brightness" />
+                                <FontIcon Glyph="&#xE706;" VerticalAlignment="Bottom" Margin="0,0,0,13" FontSize="18" Foreground="#FFCFB000" />
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="1" Background="#74FFFFFF" CornerRadius="18">
+                            <Grid>
+                                <Border Height="{x:Bind ViewModel.VolumePercent, Mode=OneWay}" VerticalAlignment="Bottom" Background="#E8FFFFFF" CornerRadius="0,0,18,18" />
+                                <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" Value="{x:Bind ViewModel.VolumePercent, Mode=OneWay}" Orientation="Vertical" Opacity="0.01" ValueChanged="OnVolumeSliderValueChanged" AutomationProperties.Name="Volume" />
+                                <FontIcon Glyph="&#xE767;" VerticalAlignment="Bottom" Margin="0,0,0,13" FontSize="18" Foreground="#FF0A84FF" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <Button Grid.Row="3" Width="54" Height="54" Padding="0" Background="#FF29335F" BorderBrush="#00FFFFFF" CornerRadius="27" Command="{x:Bind ViewModel.ToggleMuteCommand}" AutomationProperties.Name="Mute">
+                        <FontIcon Glyph="&#xE767;" FontSize="20" Foreground="White" />
+                    </Button>
+                    <Button Grid.Row="3" Grid.Column="1" Width="54" Height="54" Padding="0" Background="#6A313840" BorderBrush="#00FFFFFF" CornerRadius="27" Command="{x:Bind ViewModel.OpenScreenClipCommand}" AutomationProperties.Name="Screenshot">
+                        <FontIcon Glyph="&#xE722;" FontSize="20" Foreground="White" />
+                    </Button>
+                    <Button Grid.Row="3" Grid.Column="2" Width="54" Height="54" Padding="0" Background="#F7FFFFFF" BorderBrush="#00FFFFFF" CornerRadius="27" Command="{x:Bind ViewModel.OpenCameraCommand}" AutomationProperties.Name="Camera">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Selfie" Command="{x:Bind ViewModel.OpenCameraSelfieCommand}" Icon="Contact" />
+                                <MenuFlyoutItem Text="Video" Command="{x:Bind ViewModel.OpenCameraVideoCommand}" Icon="Video" />
+                                <MenuFlyoutItem Text="Photo" Command="{x:Bind ViewModel.OpenCameraPhotoCommand}" Icon="Camera" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                        <FontIcon Glyph="&#xE722;" FontSize="20" Foreground="#FF30343B" />
+                    </Button>
+
+                    <Border Grid.Row="4" Grid.ColumnSpan="3" Padding="12,0" Background="#5A313840" CornerRadius="20">
+                        <Grid>
+                            <TextBlock Text="{x:Bind ViewModel.ModeLabel, Mode=OneWay}" VerticalAlignment="Center" Foreground="#EFFFFFFF" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Text="{x:Bind ViewModel.CurrentTime, Mode=OneWay}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#DFFFFFFF" FontSize="12" />
                         </Grid>
                     </Border>
                 </Grid>

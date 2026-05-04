@@ -1,6 +1,8 @@
 using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 
@@ -12,8 +14,11 @@ public sealed partial class StatusOverlayWindow : Window
 
     private readonly DispatcherTimer _clock = new();
     private readonly DispatcherTimer _foregroundMonitor = new();
+    private Storyboard? _statusStoryboard;
     private bool _initialized;
     private bool _homeMode = true;
+    private double _targetBackdropOpacity = -1;
+    private Windows.Foundation.Point? _pointerStart;
 
     public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
 
@@ -75,7 +80,7 @@ public sealed partial class StatusOverlayWindow : Window
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         SetPopupWindowStyle(handle);
         var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
-        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
+        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE);
         HideDwmBorder(handle);
         PositionWindow();
         AppWindow.Hide();
@@ -89,23 +94,74 @@ public sealed partial class StatusOverlayWindow : Window
     private void ApplyForegroundStyle()
     {
         var hasLargeForegroundApp = IsForegroundLargeNonCoreDeskWindow();
-        if (_homeMode && !hasLargeForegroundApp)
+        var isHomescreenOnly = _homeMode && !hasLargeForegroundApp;
+        Root.Tag = new SolidColorBrush(Microsoft.UI.Colors.White);
+        AnimateStatusBackdrop(isHomescreenOnly ? 0 : 1);
+    }
+
+    private void AnimateStatusBackdrop(double opacity)
+    {
+        if (Math.Abs(_targetBackdropOpacity - opacity) < 0.001)
         {
-            StatusSurface.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            Root.Tag = new SolidColorBrush(Microsoft.UI.Colors.White);
             return;
         }
 
-        var useDark = ShouldUseDarkSystemTheme();
-        StatusSurface.Background = new SolidColorBrush(useDark
-            ? Windows.UI.Color.FromArgb(238, 15, 18, 22)
-            : Windows.UI.Color.FromArgb(238, 246, 248, 250));
-        Root.Tag = new SolidColorBrush(useDark ? Microsoft.UI.Colors.White : Windows.UI.Color.FromArgb(255, 17, 24, 32));
+        _targetBackdropOpacity = opacity;
+        _statusStoryboard?.Stop();
+        var animation = new DoubleAnimation
+        {
+            To = opacity,
+            Duration = new Duration(TimeSpan.FromMilliseconds(240)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        Storyboard.SetTarget(animation, DarkStatusBackdrop);
+        Storyboard.SetTargetProperty(animation, "Opacity");
+        _statusStoryboard = new Storyboard();
+        _statusStoryboard.Children.Add(animation);
+        _statusStoryboard.Begin();
     }
 
     private void KeepTopMost()
     {
         SetWindowPos(WinRT.Interop.WindowNative.GetWindowHandle(this), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _pointerStart = e.GetCurrentPoint(Root).Position;
+    }
+
+    private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_pointerStart is null)
+        {
+            return;
+        }
+
+        var start = _pointerStart.Value;
+        var end = e.GetCurrentPoint(Root).Position;
+        _pointerStart = null;
+        var deltaY = end.Y - start.Y;
+        var deltaX = end.X - start.X;
+        if (start.X < Root.ActualWidth * 0.5 || deltaY < 24 || Math.Abs(deltaX) > deltaY)
+        {
+            return;
+        }
+
+        OpenControlCenter();
+        e.Handled = true;
+    }
+
+    private void OnControlCenterHotZoneTapped(object sender, TappedRoutedEventArgs e)
+    {
+        OpenControlCenter();
+        e.Handled = true;
+    }
+
+    private static void OpenControlCenter()
+    {
+        App.ShowMainShell(openControlCenter: true);
     }
 
     private static void SetPopupWindowStyle(nint handle)
@@ -147,19 +203,6 @@ public sealed partial class StatusOverlayWindow : Window
         var screenHeight = GetSystemMetrics(1);
         return rect.Right - rect.Left >= screenWidth * 0.72
             && rect.Bottom - rect.Top >= screenHeight * 0.72;
-    }
-
-    private static bool ShouldUseDarkSystemTheme()
-    {
-        try
-        {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return (int?)key?.GetValue("AppsUseLightTheme") == 0;
-        }
-        catch
-        {
-            return true;
-        }
     }
 
     private static readonly nint HWND_TOPMOST = new(-1);

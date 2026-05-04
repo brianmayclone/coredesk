@@ -19,7 +19,9 @@ public partial class App : Application
     public static AppComposition Services { get; private set; } = null!;
 
     private static DispatcherTimer? _desktopLayerEnforcer;
+    private static DispatcherTimer? _workAreaEnforcer;
     private static WindowsKeyHook? _windowsKeyHook;
+    private static bool _homeExperienceReady;
 
     public App()
     {
@@ -70,9 +72,7 @@ public partial class App : Application
             }
 
             Window.Activate();
-            StatusWindow.ShowStatus(homeMode: true);
-            DockWindow.ShowDock(homeMode: true);
-            Services.SystemIntegration.ReserveTopWorkArea(StatusWindow.WindowHandle, StatusOverlayWindow.ReservedHeight);
+            ShowStatusAndReserveWorkArea(homeMode: true);
             if (Window is MainWindow desktopWindow)
             {
                 desktopWindow.ConfigureAsDesktopLayer();
@@ -91,6 +91,72 @@ public partial class App : Application
             WriteFallbackCrashLog(exception);
             throw;
         }
+    }
+
+    public static void NotifyHomeExperienceReady(bool homeMode)
+    {
+        if (_homeExperienceReady)
+        {
+            ShowDockWhenReady(homeMode);
+            return;
+        }
+
+        _homeExperienceReady = true;
+        Services.Diagnostics.Info("Home experience finished loading; starting native dock.");
+        ShowDockWhenReady(homeMode);
+    }
+
+    public static void ShowDockWhenReady(bool homeMode)
+    {
+        if (!_homeExperienceReady)
+        {
+            return;
+        }
+
+        DockWindow?.ShowDock(homeMode);
+    }
+
+    public static void ShowStatusAndReserveWorkArea(bool homeMode)
+    {
+        if (StatusWindow is null)
+        {
+            return;
+        }
+
+        StatusWindow.ShowStatus(homeMode);
+        ReserveTopWorkAreaWithRetry();
+    }
+
+    private static void ReserveTopWorkAreaWithRetry()
+    {
+        if (StatusWindow is null)
+        {
+            return;
+        }
+
+        Services.SystemIntegration.ReserveTopWorkArea(StatusWindow.WindowHandle, StatusOverlayWindow.ReservedHeight);
+
+        var remainingTicks = 12;
+        _workAreaEnforcer?.Stop();
+        _workAreaEnforcer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _workAreaEnforcer.Tick += (_, _) =>
+        {
+            if (StatusWindow is not null)
+            {
+                Services.SystemIntegration.ReserveTopWorkArea(StatusWindow.WindowHandle, StatusOverlayWindow.ReservedHeight);
+            }
+
+            remainingTicks--;
+            if (remainingTicks <= 0)
+            {
+                _workAreaEnforcer?.Stop();
+                _workAreaEnforcer = null;
+            }
+        };
+        _workAreaEnforcer.Start();
     }
 
     private static string GetLaunchArguments(string winUiArguments)
@@ -168,8 +234,8 @@ public partial class App : Application
         Window.AppWindow.Show(true);
         Window.Activate();
         mainWindow.UseFullScreenShell();
-        StatusWindow?.ShowStatus(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
-        DockWindow?.ShowDock(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
+        ShowStatusAndReserveWorkArea(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
+        ShowDockWhenReady(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
         if (!openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher)
         {
             mainWindow.ShowHome();
@@ -206,16 +272,16 @@ public partial class App : Application
                     KeepHomescreenBehindWindows();
                 }
 
-                StatusWindow?.ShowStatus(homeMode: false);
-                DockWindow?.ShowDock(homeMode: false);
+                ShowStatusAndReserveWorkArea(homeMode: false);
+                ShowDockWhenReady(homeMode: false);
                 Services.SystemIntegration.SetTaskbarVisible(false);
                 return;
             }
 
             Window.AppWindow.Show(true);
             Window.Activate();
-            StatusWindow?.ShowStatus(homeMode: true);
-            DockWindow?.ShowDock(homeMode: true);
+            ShowStatusAndReserveWorkArea(homeMode: true);
+            ShowDockWhenReady(homeMode: true);
             if (Window is MainWindow mainWindow)
             {
                 mainWindow.UseFullScreenShell();
@@ -233,6 +299,8 @@ public partial class App : Application
             Services?.ShellReplacement.RestoreExplorerForSession();
             _windowsKeyHook?.Dispose();
             _windowsKeyHook = null;
+            _workAreaEnforcer?.Stop();
+            _workAreaEnforcer = null;
             DockWindow?.Close();
             StatusWindow?.Close();
             Services?.SystemIntegration.Dispose();

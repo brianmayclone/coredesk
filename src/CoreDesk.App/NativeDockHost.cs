@@ -6,15 +6,22 @@ namespace CoreDesk_App;
 public sealed class NativeDockHost : IDisposable
 {
     private Process? _process;
+    private bool? _homeMode;
 
     public void ShowDock(bool homeMode = false)
     {
         if (_process is { HasExited: false })
         {
-            return;
+            if (_homeMode == homeMode)
+            {
+                return;
+            }
+
+            Close();
         }
 
-        var startInfo = CreateStartInfo();
+        _homeMode = homeMode;
+        var startInfo = CreateStartInfo(homeMode);
         if (startInfo is null)
         {
             App.Services.Diagnostics.Info("CoreDesk native dock executable was not found; dock will remain hidden.");
@@ -55,12 +62,13 @@ public sealed class NativeDockHost : IDisposable
         {
             _process.Dispose();
             _process = null;
+            _homeMode = null;
         }
     }
 
     public void Dispose() => Close();
 
-    private static ProcessStartInfo? CreateStartInfo()
+    private static ProcessStartInfo? CreateStartInfo(bool homeMode)
     {
         var dockPath = FindDockExecutable();
         if (dockPath is not null)
@@ -68,7 +76,7 @@ public sealed class NativeDockHost : IDisposable
             dockPath = CopyDockToRuntimeDirectory(dockPath);
             return new ProcessStartInfo(dockPath)
             {
-                Arguments = BuildDockArguments(),
+                Arguments = BuildDockArguments(homeMode),
                 UseShellExecute = false,
                 WorkingDirectory = Path.GetDirectoryName(dockPath) ?? Environment.CurrentDirectory
             };
@@ -82,20 +90,25 @@ public sealed class NativeDockHost : IDisposable
 
         return new ProcessStartInfo("dotnet")
         {
-            Arguments = $"run --project \"{projectPath}\" -p:Platform=x64 -- {BuildDockArguments()}",
+            Arguments = $"run --project \"{projectPath}\" -p:Platform=x64 -- {BuildDockArguments(homeMode)}",
             UseShellExecute = false,
             WorkingDirectory = FindRepositoryRoot() ?? Environment.CurrentDirectory,
             CreateNoWindow = true
         };
     }
 
-    private static string BuildDockArguments()
+    private static string BuildDockArguments(bool homeMode)
     {
         var args = new List<string>
         {
             "--parent-pid",
             Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
+
+        if (homeMode)
+        {
+            args.Add("--home-mode");
+        }
 
         if (App.Services.Options.Diagnostics)
         {

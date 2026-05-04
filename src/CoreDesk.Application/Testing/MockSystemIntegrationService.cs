@@ -11,6 +11,16 @@ public sealed class MockSystemIntegrationService(IDiagnosticsService diagnostics
 
     public int ReservedTopWorkAreaPixels { get; private set; }
 
+    public int VolumePercent { get; private set; } = 50;
+
+    public bool Muted { get; private set; }
+
+    public int BrightnessPercent { get; private set; } = 70;
+
+    public string? LastOpenedPanel { get; private set; }
+
+    public bool WasLocked { get; private set; }
+
     public event EventHandler<SystemIntegrationCommand>? CommandRequested;
 
     public void Initialize()
@@ -46,6 +56,42 @@ public sealed class MockSystemIntegrationService(IDiagnosticsService diagnostics
     {
         IsTrayVisible = false;
         diagnostics.Info("Mock tray hidden.");
+    }
+
+    public int GetVolumePercent() => VolumePercent;
+
+    public void SetVolumePercent(int percent)
+    {
+        VolumePercent = Math.Clamp(percent, 0, 100);
+        diagnostics.Info($"Mock volume set: {VolumePercent}");
+    }
+
+    public bool IsMuted() => Muted;
+
+    public void SetMuted(bool muted)
+    {
+        Muted = muted;
+        diagnostics.Info($"Mock muted: {Muted}");
+    }
+
+    public int? GetBrightnessPercent() => BrightnessPercent;
+
+    public void SetBrightnessPercent(int percent)
+    {
+        BrightnessPercent = Math.Clamp(percent, 0, 100);
+        diagnostics.Info($"Mock brightness set: {BrightnessPercent}");
+    }
+
+    public void LockScreen()
+    {
+        WasLocked = true;
+        diagnostics.Info("Mock lock screen requested.");
+    }
+
+    public void OpenSystemPanel(string panelUri)
+    {
+        LastOpenedPanel = panelUri;
+        diagnostics.Info($"Mock system panel opened: {panelUri}");
     }
 
     public void Dispose()

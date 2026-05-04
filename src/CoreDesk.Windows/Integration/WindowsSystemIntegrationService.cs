@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
@@ -250,6 +251,107 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         }
     }
 
+    public int GetVolumePercent()
+    {
+        var endpoint = GetAudioEndpoint();
+        if (endpoint is null)
+        {
+            return 50;
+        }
+
+        try
+        {
+            endpoint.GetMasterVolumeLevelScalar(out var level);
+            return (int)Math.Round(Math.Clamp(level, 0, 1) * 100);
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(endpoint);
+        }
+    }
+
+    public void SetVolumePercent(int percent)
+    {
+        var endpoint = GetAudioEndpoint();
+        if (endpoint is null)
+        {
+            return;
+        }
+
+        try
+        {
+            endpoint.SetMasterVolumeLevelScalar(Math.Clamp(percent, 0, 100) / 100f, Guid.Empty);
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(endpoint);
+        }
+    }
+
+    public bool IsMuted()
+    {
+        var endpoint = GetAudioEndpoint();
+        if (endpoint is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            endpoint.GetMute(out var muted);
+            return muted;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(endpoint);
+        }
+    }
+
+    public void SetMuted(bool muted)
+    {
+        var endpoint = GetAudioEndpoint();
+        if (endpoint is null)
+        {
+            return;
+        }
+
+        try
+        {
+            endpoint.SetMute(muted, Guid.Empty);
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(endpoint);
+        }
+    }
+
+    public int? GetBrightnessPercent()
+    {
+        var output = RunPowerShell("(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness | Select-Object -First 1 -ExpandProperty CurrentBrightness)");
+        return int.TryParse(output, out var brightness) ? Math.Clamp(brightness, 0, 100) : null;
+    }
+
+    public void SetBrightnessPercent(int percent)
+    {
+        var brightness = Math.Clamp(percent, 0, 100);
+        _ = RunPowerShell($"$b={brightness}; Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods | Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Timeout=1;Brightness=$b}} | Out-Null");
+    }
+
+    public void LockScreen()
+    {
+        _ = LockWorkStation();
+    }
+
+    public void OpenSystemPanel(string panelUri)
+    {
+        if (string.IsNullOrWhiteSpace(panelUri))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo(panelUri) { UseShellExecute = true });
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -268,6 +370,65 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private void Request(SystemIntegrationCommand command)
     {
         CommandRequested?.Invoke(this, command);
+    }
+
+    private static IAudioEndpointVolume? GetAudioEndpoint()
+    {
+        IMMDeviceEnumerator? enumerator = null;
+        IMMDevice? device = null;
+        try
+        {
+            enumerator = (IMMDeviceEnumerator)(object)new MMDeviceEnumerator();
+            enumerator?.GetDefaultAudioEndpoint(EDataFlow.Render, ERole.Multimedia, out device);
+            if (device is null)
+            {
+                return null;
+            }
+
+            var endpointVolumeId = typeof(IAudioEndpointVolume).GUID;
+            device.Activate(ref endpointVolumeId, 23, IntPtr.Zero, out var endpoint);
+            return endpoint as IAudioEndpointVolume;
+        }
+        finally
+        {
+            if (device is not null)
+            {
+                Marshal.ReleaseComObject(device);
+            }
+
+            if (enumerator is not null)
+            {
+                Marshal.ReleaseComObject(enumerator);
+            }
+        }
+    }
+
+    private static string RunPowerShell(string command)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo("powershell.exe")
+            {
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{command}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+            if (process is null)
+            {
+                return string.Empty;
+            }
+
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit(3000);
+            return output;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static System.Drawing.Icon LoadCoreDeskIcon()
@@ -353,6 +514,9 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private static extern bool EnableWindow(IntPtr hWnd, bool bEnable);
 
     [DllImport("user32.dll")]
+    private static extern bool LockWorkStation();
+
+    [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
 
     [DllImport("user32.dll")]
@@ -380,6 +544,74 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private static extern UIntPtr SHAppBarMessage(uint dwMessage, ref AppBarData pData);
 
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    private enum EDataFlow
+    {
+        Render,
+        Capture,
+        All
+    }
+
+    private enum ERole
+    {
+        Console,
+        Multimedia,
+        Communications
+    }
+
+    [ComImport]
+    [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    private sealed class MMDeviceEnumerator;
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
+    private interface IMMDeviceEnumerator
+    {
+        void EnumAudioEndpoints(EDataFlow dataFlow, int stateMask, out IntPtr devices);
+
+        void GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice endpoint);
+    }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
+    private interface IMMDevice
+    {
+        void Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object interfacePointer);
+    }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]
+    private interface IAudioEndpointVolume
+    {
+        void RegisterControlChangeNotify(IntPtr notify);
+
+        void UnregisterControlChangeNotify(IntPtr notify);
+
+        void GetChannelCount(out int channelCount);
+
+        void SetMasterVolumeLevel(float level, Guid eventContext);
+
+        void SetMasterVolumeLevelScalar(float level, Guid eventContext);
+
+        void GetMasterVolumeLevel(out float level);
+
+        void GetMasterVolumeLevelScalar(out float level);
+
+        void SetChannelVolumeLevel(int channelNumber, float level, Guid eventContext);
+
+        void SetChannelVolumeLevelScalar(int channelNumber, float level, Guid eventContext);
+
+        void GetChannelVolumeLevel(int channelNumber, out float level);
+
+        void GetChannelVolumeLevelScalar(int channelNumber, out float level);
+
+        void SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, Guid eventContext);
+
+        void GetMute([MarshalAs(UnmanagedType.Bool)] out bool isMuted);
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AppBarData

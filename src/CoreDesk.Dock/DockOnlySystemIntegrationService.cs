@@ -34,6 +34,37 @@ public sealed class DockOnlySystemIntegrationService(IDiagnosticsService diagnos
     {
     }
 
+    public int GetVolumePercent() => 50;
+
+    public void SetVolumePercent(int percent)
+    {
+        diagnostics.Info($"Dock-only volume request ignored: {percent}.");
+    }
+
+    public bool IsMuted() => false;
+
+    public void SetMuted(bool muted)
+    {
+        diagnostics.Info($"Dock-only mute request ignored: {muted}.");
+    }
+
+    public int? GetBrightnessPercent() => null;
+
+    public void SetBrightnessPercent(int percent)
+    {
+        diagnostics.Info($"Dock-only brightness request ignored: {percent}.");
+    }
+
+    public void LockScreen()
+    {
+        diagnostics.Info("Dock-only lock request ignored.");
+    }
+
+    public void OpenSystemPanel(string panelUri)
+    {
+        diagnostics.Info($"Dock-only system panel request ignored: {panelUri}.");
+    }
+
     public void Dispose()
     {
     }

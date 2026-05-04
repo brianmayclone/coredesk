@@ -18,6 +18,7 @@ public sealed partial class ShellViewModel(
     IShellModeService shellModeService,
     IAppSearchService appSearch,
     ISystemStatusService systemStatusService,
+    ISystemIntegrationService systemIntegrationService,
     IWidgetRegistry widgetRegistry,
     IHardwareMonitor hardwareMonitor,
     IWallpaperService wallpaperService,
@@ -31,12 +32,15 @@ public sealed partial class ShellViewModel(
     private readonly DefaultLayoutBuilder _defaultLayoutBuilder = new();
     private readonly LayoutService _layoutService = new();
     private DisplayMetrics _displayMetrics = new(1920, 1080, 96, 96, null, null);
+    private double _viewportWidth = 1920;
 
     public ObservableCollection<AppEntry> HomeApps { get; } = [];
 
     public ObservableCollection<FolderTileViewModel> HomeFolders { get; } = [];
 
     public ObservableCollection<HomeTileViewModel> HomeTiles { get; } = [];
+
+    public ObservableCollection<PageIndicatorViewModel> PageIndicators { get; } = [];
 
     public ObservableCollection<HomeWidgetViewModel> Widgets { get; } = [];
 
@@ -90,6 +94,15 @@ public sealed partial class ShellViewModel(
     private string _keyboardLabel = "Touch";
 
     [ObservableProperty]
+    private int _volumePercent = 50;
+
+    [ObservableProperty]
+    private int _brightnessPercent = 70;
+
+    [ObservableProperty]
+    private bool _isMuted;
+
+    [ObservableProperty]
     private FolderTileViewModel? _openFolderTile;
 
     [ObservableProperty]
@@ -127,6 +140,10 @@ public sealed partial class ShellViewModel(
 
     public string DpiSummary => $"{_displayMetrics.DpiX:0.#} DPI";
 
+    public string BatteryPercentLabel => BatteryLabel
+        .Replace("Battery ", string.Empty, StringComparison.OrdinalIgnoreCase)
+        .Replace(" charging", string.Empty, StringComparison.OrdinalIgnoreCase);
+
     public double UiScale { get; private set; } = 1;
 
     public double ShellPadding { get; private set; } = 42;
@@ -142,6 +159,10 @@ public sealed partial class ShellViewModel(
     public double DockButtonSize { get; private set; } = 60;
 
     public double DockIconSize { get; private set; } = 26;
+
+    public double ControlCenterScale { get; private set; } = 1;
+
+    public double ControlCenterWidth { get; private set; } = 334;
 
     public double DrawerTileWidth { get; private set; } = 156;
 
@@ -194,6 +215,7 @@ public sealed partial class ShellViewModel(
         OnPropertyChanged(nameof(DisplaySummary));
         OnPropertyChanged(nameof(DpiSummary));
         OnPropertyChanged(nameof(PageCount));
+        RefreshPageIndicators();
     }
 
     public void UpdateViewport(double width, double height)
@@ -203,6 +225,7 @@ public sealed partial class ShellViewModel(
             return;
         }
 
+        _viewportWidth = width;
         var diagonal = _displayMetrics.DiagonalInches;
         var physicalBias = diagonal is > 0 and < 14 ? 1.12 : 1.0;
         var widthScale = Math.Clamp(width / 1700.0, 0.92, 1.34);
@@ -221,6 +244,7 @@ public sealed partial class ShellViewModel(
     {
         RefreshHomeTiles();
         OnPropertyChanged(nameof(PageCount));
+        RefreshPageIndicators();
     }
 
     [RelayCommand]
@@ -353,6 +377,82 @@ public sealed partial class ShellViewModel(
     }
 
     [RelayCommand]
+    private void ToggleMute()
+    {
+        IsMuted = !IsMuted;
+        systemIntegrationService.SetMuted(IsMuted);
+    }
+
+    [RelayCommand]
+    private void LockScreen()
+    {
+        systemIntegrationService.LockScreen();
+        IsControlCenterOpen = false;
+    }
+
+    [RelayCommand]
+    private void OpenWifi()
+    {
+        systemIntegrationService.OpenSystemPanel("ms-settings:network-wifi");
+    }
+
+    [RelayCommand]
+    private void OpenAirplaneMode()
+    {
+        systemIntegrationService.OpenSystemPanel("ms-settings:network-airplanemode");
+    }
+
+    [RelayCommand]
+    private void OpenBluetooth()
+    {
+        systemIntegrationService.OpenSystemPanel("ms-settings:bluetooth");
+    }
+
+    [RelayCommand]
+    private void OpenFocus()
+    {
+        systemIntegrationService.OpenSystemPanel("ms-settings:quiethours");
+    }
+
+    [RelayCommand]
+    private void OpenDisplay()
+    {
+        systemIntegrationService.OpenSystemPanel("ms-settings:display");
+    }
+
+    [RelayCommand]
+    private void OpenScreenClip()
+    {
+        systemIntegrationService.OpenSystemPanel("ms-screenclip:");
+        IsControlCenterOpen = false;
+    }
+
+    [RelayCommand]
+    private void OpenCamera()
+    {
+        systemIntegrationService.OpenSystemPanel("microsoft.windows.camera:");
+        IsControlCenterOpen = false;
+    }
+
+    [RelayCommand]
+    private void OpenCameraSelfie()
+    {
+        OpenCamera();
+    }
+
+    [RelayCommand]
+    private void OpenCameraVideo()
+    {
+        OpenCamera();
+    }
+
+    [RelayCommand]
+    private void OpenCameraPhoto()
+    {
+        OpenCamera();
+    }
+
+    [RelayCommand]
     private async Task LaunchAppAsync(AppEntry? app)
     {
         if (app is null)
@@ -388,6 +488,19 @@ public sealed partial class ShellViewModel(
         CurrentTime = DateTime.Now.ToString("HH:mm");
         RefreshStatus();
         _ = RefreshRunningAppsAsync();
+    }
+
+    public void SetVolumePercent(int percent)
+    {
+        VolumePercent = Math.Clamp(percent, 0, 100);
+        systemIntegrationService.SetVolumePercent(VolumePercent);
+        IsMuted = systemIntegrationService.IsMuted();
+    }
+
+    public void SetBrightnessPercent(int percent)
+    {
+        BrightnessPercent = Math.Clamp(percent, 0, 100);
+        systemIntegrationService.SetBrightnessPercent(BrightnessPercent);
     }
 
     public async Task RefreshInstalledAppsAsync(CancellationToken cancellationToken = default)
@@ -472,6 +585,61 @@ public sealed partial class ShellViewModel(
         diagnostics.Info($"Moved home app '{appId}' to page {CurrentPageIndex}, index {index}.");
     }
 
+    public async Task MoveHomeFolderAsync(string folderId, int targetIndex, CancellationToken cancellationToken = default)
+    {
+        var folder = _layout.Folders.FirstOrDefault(candidate => candidate.Id.Equals(folderId, StringComparison.OrdinalIgnoreCase));
+        if (folder is null)
+        {
+            diagnostics.Info($"Home folder move ignored; folder '{folderId}' was not found.");
+            return;
+        }
+
+        var page = GetOrCreatePage(CurrentPageIndex);
+        foreach (var candidate in _layout.Pages)
+        {
+            candidate.Tiles.RemoveAll(tile => string.Equals(tile.FolderId, folderId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var index = Math.Clamp(targetIndex, 0, Math.Max(0, page.Tiles.Count));
+        page.Tiles.Insert(index, new HomeTile
+        {
+            FolderId = folderId,
+            Column = index % 8,
+            Row = index / 8
+        });
+        NormalizePageTiles(page);
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        RefreshHomeTiles();
+        RefreshPageIndicators();
+        diagnostics.Info($"Moved home folder '{folderId}' to page {CurrentPageIndex}, index {index}.");
+    }
+
+    public bool MoveToAdjacentPageForDrag(int direction, bool allowCreatePage)
+    {
+        if (direction < 0)
+        {
+            PreviousPage();
+            return false;
+        }
+
+        if (CurrentPageIndex >= PageCount - 1)
+        {
+            if (!allowCreatePage)
+            {
+                return false;
+            }
+
+            GetOrCreatePage(CurrentPageIndex + 1);
+            OnPropertyChanged(nameof(PageCount));
+            RefreshPageIndicators();
+            NextPage();
+            return true;
+        }
+
+        NextPage();
+        return false;
+    }
+
     public async Task MoveWidgetAsync(string widgetId, int targetIndex, CancellationToken cancellationToken = default)
     {
         var widget = _layout.Widgets.FirstOrDefault(candidate => candidate.Id.Equals(widgetId, StringComparison.OrdinalIgnoreCase));
@@ -508,6 +676,10 @@ public sealed partial class ShellViewModel(
             : status.IsCharging ? $"Battery {status.BatteryPercent}% charging" : $"Battery {status.BatteryPercent}%";
         NetworkLabel = status.IsNetworkAvailable ? "Online" : "Offline";
         KeyboardLabel = status.IsKeyboardPresent ? "Keyboard" : "Touch";
+        VolumePercent = systemIntegrationService.GetVolumePercent();
+        IsMuted = systemIntegrationService.IsMuted();
+        BrightnessPercent = systemIntegrationService.GetBrightnessPercent() ?? BrightnessPercent;
+        OnPropertyChanged(nameof(BatteryPercentLabel));
     }
 
     private async Task RefreshAppCollectionsAsync(CancellationToken cancellationToken = default)
@@ -554,6 +726,11 @@ public sealed partial class ShellViewModel(
         AppIconGlyphSize = Math.Round(AppIconSize * 0.4);
         DockButtonSize = Math.Round(Math.Clamp(60 * UiScale, 58, 86));
         DockIconSize = Math.Round(DockButtonSize * 0.44);
+        ControlCenterScale = Math.Round(Math.Clamp(DockButtonSize / 60, 0.96, 1.28), 2);
+        var desiredControlCenterWidth = 334 * ControlCenterScale;
+        var controlCenterRightInset = 36 * ControlCenterScale;
+        var maxControlCenterWidth = Math.Max(306, _viewportWidth - controlCenterRightInset - 12);
+        ControlCenterWidth = Math.Round(Math.Min(desiredControlCenterWidth, maxControlCenterWidth));
         DrawerTileWidth = Math.Round(156 * UiScale);
         DrawerTileHeight = Math.Round(146 * UiScale);
 
@@ -565,6 +742,8 @@ public sealed partial class ShellViewModel(
         OnPropertyChanged(nameof(AppIconGlyphSize));
         OnPropertyChanged(nameof(DockButtonSize));
         OnPropertyChanged(nameof(DockIconSize));
+        OnPropertyChanged(nameof(ControlCenterScale));
+        OnPropertyChanged(nameof(ControlCenterWidth));
         OnPropertyChanged(nameof(DrawerTileWidth));
         OnPropertyChanged(nameof(DrawerTileHeight));
         OnPropertyChanged(nameof(WallpaperPath));
@@ -602,6 +781,29 @@ public sealed partial class ShellViewModel(
             {
                 HomeTiles.Add(new HomeTileViewModel(null, folder));
             }
+        }
+    }
+
+    private HomePage GetOrCreatePage(int pageIndex)
+    {
+        var page = _layout.Pages.FirstOrDefault(candidate => candidate.Index == pageIndex);
+        if (page is not null)
+        {
+            return page;
+        }
+
+        page = new HomePage { Index = pageIndex };
+        _layout.Pages.Add(page);
+        _layout.Pages.Sort((left, right) => left.Index.CompareTo(right.Index));
+        return page;
+    }
+
+    private void RefreshPageIndicators()
+    {
+        PageIndicators.Clear();
+        for (var index = 0; index < PageCount; index++)
+        {
+            PageIndicators.Add(new PageIndicatorViewModel(index, index == CurrentPageIndex));
         }
     }
 

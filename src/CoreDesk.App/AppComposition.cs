@@ -102,6 +102,7 @@ public sealed class AppComposition : IDisposable
             ShellMode,
             AppSearch,
             SystemStatus,
+            SystemIntegration,
             WidgetRegistry,
             HardwareMonitor,
             Wallpaper,

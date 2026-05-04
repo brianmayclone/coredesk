@@ -19,8 +19,9 @@ public static class Program
         System.Windows.Forms.Application.EnableVisualStyles();
         System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
         var parentPid = TryReadParentPid(args);
+        var homeMode = args.Any(arg => arg.Equals("--home-mode", StringComparison.OrdinalIgnoreCase));
         using var parentMonitor = CreateParentMonitor(parentPid);
-        using var form = new NativeDockForm(Services.CreateShellViewModel(), Services.Diagnostics, parentPid);
+        using var form = new NativeDockForm(Services.CreateShellViewModel(), Services.Diagnostics, parentPid, homeMode);
         System.Windows.Forms.Application.Run(form);
         Services.Dispose();
     }

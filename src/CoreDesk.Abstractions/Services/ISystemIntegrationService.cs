@@ -17,4 +17,20 @@ public interface ISystemIntegrationService : IDisposable
     void ShowTrayIcon();
 
     void HideTrayIcon();
+
+    int GetVolumePercent();
+
+    void SetVolumePercent(int percent);
+
+    bool IsMuted();
+
+    void SetMuted(bool muted);
+
+    int? GetBrightnessPercent();
+
+    void SetBrightnessPercent(int percent);
+
+    void LockScreen();
+
+    void OpenSystemPanel(string panelUri);
 }

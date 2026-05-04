@@ -14,6 +14,7 @@ public sealed class NativeDockForm : Form
     private readonly ShellViewModel _viewModel;
     private readonly IDiagnosticsService _diagnostics;
     private readonly int? _parentProcessId;
+    private readonly bool _homeMode;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
     private readonly System.Windows.Forms.Timer _visibilityTimer = new();
     private readonly System.Windows.Forms.Timer _animationTimer = new();
@@ -41,11 +42,12 @@ public sealed class NativeDockForm : Form
     private string? _pressedVisualId;
     private DateTime _pressedVisualUntil = DateTime.MinValue;
 
-    public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null)
+    public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null, bool homeMode = false)
     {
         _viewModel = viewModel;
         _diagnostics = diagnostics;
         _parentProcessId = parentProcessId;
+        _homeMode = homeMode;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -369,6 +371,13 @@ public sealed class NativeDockForm : Form
     {
         if (IsDisposed || !_initialized)
         {
+            return;
+        }
+
+        if (_homeMode)
+        {
+            _foregroundOverlapSince = null;
+            ForceVisible();
             return;
         }
 
@@ -748,7 +757,7 @@ public sealed class NativeDockForm : Form
         var itemCount = Math.Max(1, GetDockItemCount());
         var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap);
         var dockWidth = contentWidth + (sidePadding * 2);
-        var sideShadow = Scale(17, scale);
+        var sideShadow = Scale(22, scale);
 
         return new DockMetrics(
             scale,
@@ -761,10 +770,10 @@ public sealed class NativeDockForm : Form
             Scale(8, scale),
             Scale(3, scale),
             Scale(9, scale),
-            Scale(18, scale),
+            Scale(22, scale),
             Math.Max(Scale(108, scale), iconSlot + Scale(24, scale)),
             dockWidth + (sideShadow * 2),
-            Math.Max(Scale(144, scale), iconSlot + Scale(58, scale)),
+            Math.Max(Scale(154, scale), iconSlot + Scale(66, scale)),
             Scale(18, scale),
             Scale(34, scale),
             sideShadow);
@@ -824,7 +833,7 @@ public sealed class NativeDockForm : Form
         var previousClip = graphics.Clip;
         graphics.SetClip(clipPath, CombineMode.Replace);
         using var attributes = new ImageAttributes();
-        var alpha = _isAutoHidden ? 0.62f : 0.88f;
+        var alpha = _isAutoHidden ? 0.58f : 0.80f;
         attributes.SetColorMatrix(new ColorMatrix
         {
             Matrix00 = 1f,
@@ -845,8 +854,8 @@ public sealed class NativeDockForm : Form
 
         using var wash = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(62, 255, 255, 255),
-            Color.FromArgb(72, 20, 10, 18),
+            Color.FromArgb(46, 255, 255, 255),
+            Color.FromArgb(54, 20, 10, 18),
             90f);
         graphics.FillPath(wash, clipPath);
         graphics.Clip = previousClip;
@@ -1316,12 +1325,12 @@ public sealed class NativeDockForm : Form
 
     private static void DrawSoftShadow(Graphics graphics, Rectangle surface)
     {
-        for (var index = 0; index < 8; index++)
+        for (var index = 0; index < 10; index++)
         {
-            var alpha = 42 - (index * 4);
+            var alpha = 30 - (index * 2);
             var shadowRect = Rectangle.Inflate(surface, index * 3, index * 2);
-            shadowRect.Offset(0, 6 + index);
-            using var shadow = new SolidBrush(Color.FromArgb(Math.Max(6, alpha), 0, 0, 0));
+            shadowRect.Offset(0, 7 + index);
+            using var shadow = new SolidBrush(Color.FromArgb(Math.Max(3, alpha), 0, 0, 0));
             using var shadowPath = RoundedRect(shadowRect, Math.Max(18, surface.Height / 2) + index);
             graphics.FillPath(shadow, shadowPath);
         }
