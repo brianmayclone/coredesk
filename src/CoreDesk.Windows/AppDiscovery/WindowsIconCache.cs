@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace CoreDesk.Windows.AppDiscovery;
 
@@ -18,7 +19,7 @@ internal sealed class WindowsIconCache
 
     public string? GetOrCreateIconPath(string id, string? executablePath, string? shortcutPath)
     {
-        var cachePath = Path.Combine(_cacheDirectory, $"{SafeFileName(id)}.png");
+        var cachePath = Path.Combine(_cacheDirectory, $"{SafeFileName(id)}-v3.png");
         if (File.Exists(cachePath))
         {
             return cachePath;
@@ -32,14 +33,14 @@ internal sealed class WindowsIconCache
 
         try
         {
-            using var icon = Icon.ExtractAssociatedIcon(source);
-            if (icon is null)
+            using var bitmap = TryCreateHighResolutionIconBitmap(source) ?? TryCreateAssociatedIconBitmap(source);
+            if (bitmap is null)
             {
                 return null;
             }
 
-            using var bitmap = icon.ToBitmap();
-            bitmap.Save(cachePath, ImageFormat.Png);
+            using var trimmed = TrimTransparentPadding(bitmap);
+            trimmed.Save(cachePath, ImageFormat.Png);
             return cachePath;
         }
         catch
@@ -55,7 +56,7 @@ internal sealed class WindowsIconCache
             return null;
         }
 
-        var cachePath = Path.Combine(_cacheDirectory, $"{SafeFileName(id)}-store-v2.png");
+        var cachePath = Path.Combine(_cacheDirectory, $"{SafeFileName(id)}-store-v3.png");
         if (File.Exists(cachePath))
         {
             return cachePath;
@@ -177,8 +178,55 @@ internal sealed class WindowsIconCache
         return null;
     }
 
+    private static Bitmap? TryCreateHighResolutionIconBitmap(string source)
+    {
+        nint largeIcon = 0;
+        nint smallIcon = 0;
+        try
+        {
+            var result = SHDefExtractIcon(source, 0, 0, out largeIcon, out smallIcon, MakeIconSize(256, 64));
+            if (result < 0 || largeIcon == 0)
+            {
+                return null;
+            }
+
+            using var icon = (Icon)Icon.FromHandle(largeIcon).Clone();
+            return icon.ToBitmap();
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            if (largeIcon != 0)
+            {
+                _ = DestroyIcon(largeIcon);
+            }
+
+            if (smallIcon != 0)
+            {
+                _ = DestroyIcon(smallIcon);
+            }
+        }
+    }
+
+    private static Bitmap? TryCreateAssociatedIconBitmap(string source)
+    {
+        using var icon = Icon.ExtractAssociatedIcon(source);
+        return icon?.ToBitmap();
+    }
+
+    private static uint MakeIconSize(int large, int small) => (uint)((small << 16) | (large & 0xFFFF));
+
     private static string SafeFileName(string value)
     {
         return string.Concat(value.Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
     }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHDefExtractIcon(string iconFile, int iconIndex, uint flags, out nint largeIcon, out nint smallIcon, uint iconSize);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(nint icon);
 }
