@@ -30,5 +30,20 @@ public sealed class MockIntegrationTests
         Assert.Equal("CoreDesk.App.exe", autostart.ExecutablePath);
         Assert.Equal("--safe-mode", autostart.Arguments);
     }
-}
 
+    [Fact]
+    public void MockShellReplacementService_RoundTripsSessionReplacement()
+    {
+        var shellReplacement = new MockShellReplacementService();
+
+        shellReplacement.ReplaceExplorerForSession();
+
+        Assert.True(shellReplacement.IsSessionReplacementActive);
+        Assert.False(shellReplacement.IsExplorerShellRunning());
+
+        shellReplacement.RestoreExplorerForSession();
+
+        Assert.False(shellReplacement.IsSessionReplacementActive);
+        Assert.True(shellReplacement.IsExplorerShellRunning());
+    }
+}

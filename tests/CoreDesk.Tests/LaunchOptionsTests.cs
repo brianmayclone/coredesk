@@ -7,13 +7,13 @@ public sealed class LaunchOptionsTests
     [Fact]
     public void Parse_ReadsDiagnosticSafeModeAndLanguageFlags()
     {
-        var options = LaunchOptions.Parse("--diagnostics --mock-hardware --safe-mode --language de");
+        var options = LaunchOptions.Parse("--diagnostics --mock-hardware --safe-mode --replace-explorer-for-session --language de");
 
         Assert.True(options.Diagnostics);
         Assert.True(options.MockHardware);
         Assert.True(options.SafeMode);
+        Assert.True(options.ReplaceExplorerForSession);
         Assert.Equal("de", options.LanguageOverride);
         Assert.False(string.IsNullOrWhiteSpace(options.RunId));
     }
 }
-

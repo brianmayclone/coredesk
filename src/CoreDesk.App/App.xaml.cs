@@ -9,6 +9,8 @@ public partial class App : Application
 
     public static DockOverlayWindow? DockWindow { get; private set; }
 
+    public static StatusOverlayWindow? StatusWindow { get; private set; }
+
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
 
     public static nint WindowHandle =>
@@ -24,8 +26,8 @@ public partial class App : Application
         {
             try
             {
-                RestoreSystemShell();
                 Services?.Diagnostics.Error(args.Exception, "Unhandled exception.");
+                args.Handled = true;
             }
             catch
             {
@@ -47,22 +49,31 @@ public partial class App : Application
             }
 
             Services.SystemIntegration.Initialize();
+            Services.SystemIntegration.SetTaskbarVisible(false);
             Services.SystemIntegration.CommandRequested += OnSystemCommandRequested;
             Window = new MainWindow();
             Window.Closed += (_, _) => RestoreSystemShell();
             DockWindow = new DockOverlayWindow();
+            StatusWindow = new StatusOverlayWindow();
             Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             WireHardwareModeSwitching();
-            Window.Activate();
-            if (!Services.Options.SafeMode)
+            if (Services.Options.ReplaceExplorerForSession)
             {
-                Services.SystemIntegration.SetTaskbarVisible(false);
+                Services.Diagnostics.Info("Session shell replacement requested; Explorer shell will be stopped for this run.");
+                Services.ShellReplacement.ReplaceExplorerForSession();
             }
+
+            Window.Activate();
+            StatusWindow.ShowStatus(homeMode: true);
+            DockWindow.ShowDock(homeMode: true);
+            SignalShellReadyIfNeeded();
+            Services.SystemIntegration.SetTaskbarVisible(false);
         }
         catch (Exception exception)
         {
             Services?.SystemIntegration.SetTaskbarVisible(true);
+            Services?.ShellReplacement.RestoreExplorerForSession();
             Services?.Diagnostics.Error(exception, "Launch failed.");
             WriteFallbackCrashLog(exception);
             throw;
@@ -142,9 +153,14 @@ public partial class App : Application
 
         Window.AppWindow.Show(true);
         Window.Activate();
-        DockWindow?.HideDock();
         mainWindow.UseFullScreenShell();
-        if (openDrawer)
+        StatusWindow?.ShowStatus(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
+        DockWindow?.ShowDock(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
+        if (!openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher)
+        {
+            mainWindow.ShowHome();
+        }
+        else if (openDrawer)
         {
             mainWindow.OpenDrawer();
         }
@@ -168,15 +184,17 @@ public partial class App : Application
         {
             if (mode == ShellMode.Desktop)
             {
-                Window.AppWindow.Hide();
-                DockWindow?.ShowDock();
+                Window.AppWindow.Show(false);
+                StatusWindow?.ShowStatus(homeMode: false);
+                DockWindow?.ShowDock(homeMode: false);
                 Services.SystemIntegration.SetTaskbarVisible(false);
                 return;
             }
 
-            DockWindow?.HideDock();
             Window.AppWindow.Show(true);
             Window.Activate();
+            StatusWindow?.ShowStatus(homeMode: true);
+            DockWindow?.ShowDock(homeMode: true);
             if (Window is MainWindow mainWindow)
             {
                 mainWindow.UseFullScreenShell();
@@ -189,12 +207,23 @@ public partial class App : Application
         try
         {
             Services?.SystemIntegration.SetTaskbarVisible(true);
+            Services?.ShellReplacement.RestoreExplorerForSession();
             DockWindow?.Close();
+            StatusWindow?.Close();
             Services?.SystemIntegration.Dispose();
         }
         catch
         {
             // Process shutdown must not be blocked by shell restoration cleanup.
+        }
+    }
+
+    private static void SignalShellReadyIfNeeded()
+    {
+        var executablePath = Environment.ProcessPath ?? "CoreDesk.App.exe";
+        if (Services.Options.ReplaceExplorerForSession || Services.ShellReplacement.IsConfiguredAsUserShell(executablePath))
+        {
+            Services.ShellReplacement.SignalShellReady();
         }
     }
 

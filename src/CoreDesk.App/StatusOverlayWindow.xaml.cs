@@ -1,0 +1,181 @@
+using CoreDesk.Application.ViewModels;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using System.Runtime.InteropServices;
+using Windows.Graphics;
+
+namespace CoreDesk_App;
+
+public sealed partial class StatusOverlayWindow : Window
+{
+    private readonly DispatcherTimer _clock = new();
+    private readonly DispatcherTimer _foregroundMonitor = new();
+    private bool _initialized;
+    private bool _homeMode = true;
+
+    public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
+
+    public StatusOverlayWindow()
+    {
+        InitializeComponent();
+        Root.DataContext = ViewModel;
+        Root.Tag = new SolidColorBrush(Microsoft.UI.Colors.White);
+        AppWindow.SetIcon("Assets/AppIcon.ico");
+        ConfigureWindow();
+
+        _clock.Interval = TimeSpan.FromSeconds(15);
+        _clock.Tick += (_, _) => ViewModel.Tick();
+        _clock.Start();
+
+        _foregroundMonitor.Interval = TimeSpan.FromMilliseconds(700);
+        _foregroundMonitor.Tick += (_, _) => ApplyForegroundStyle();
+        _foregroundMonitor.Start();
+        Closed += (_, _) =>
+        {
+            _clock.Stop();
+            _foregroundMonitor.Stop();
+        };
+    }
+
+    public async void ShowStatus(bool homeMode)
+    {
+        _homeMode = homeMode;
+        if (!_initialized)
+        {
+            _initialized = true;
+            await ViewModel.InitializeAsync();
+        }
+
+        PositionWindow();
+        ApplyForegroundStyle();
+        Activate();
+        KeepTopMost();
+    }
+
+    public void HideStatus()
+    {
+        AppWindow.Hide();
+    }
+
+    private void ConfigureWindow()
+    {
+        AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        {
+            presenter.SetBorderAndTitleBar(false, false);
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+        }
+
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
+        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT);
+        PositionWindow();
+        AppWindow.Hide();
+    }
+
+    private void PositionWindow()
+    {
+        AppWindow.MoveAndResize(new RectInt32(0, 0, GetSystemMetrics(0), 38));
+    }
+
+    private void ApplyForegroundStyle()
+    {
+        var hasLargeForegroundApp = IsForegroundLargeNonCoreDeskWindow();
+        if (_homeMode && !hasLargeForegroundApp)
+        {
+            StatusSurface.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            Root.Tag = new SolidColorBrush(Microsoft.UI.Colors.White);
+            return;
+        }
+
+        var useDark = ShouldUseDarkSystemTheme();
+        StatusSurface.Background = new SolidColorBrush(useDark
+            ? Windows.UI.Color.FromArgb(238, 15, 18, 22)
+            : Windows.UI.Color.FromArgb(238, 246, 248, 250));
+        Root.Tag = new SolidColorBrush(useDark ? Microsoft.UI.Colors.White : Windows.UI.Color.FromArgb(255, 17, 24, 32));
+    }
+
+    private void KeepTopMost()
+    {
+        SetWindowPos(WinRT.Interop.WindowNative.GetWindowHandle(this), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
+    private static bool IsForegroundLargeNonCoreDeskWindow()
+    {
+        var foreground = GetForegroundWindow();
+        if (foreground == 0 || foreground == App.WindowHandle)
+        {
+            return false;
+        }
+
+        _ = GetWindowThreadProcessId(foreground, out var processId);
+        if (processId == Environment.ProcessId)
+        {
+            return false;
+        }
+
+        if (!GetWindowRect(foreground, out var rect))
+        {
+            return false;
+        }
+
+        var screenWidth = GetSystemMetrics(0);
+        var screenHeight = GetSystemMetrics(1);
+        return rect.Right - rect.Left >= screenWidth * 0.72
+            && rect.Bottom - rect.Top >= screenHeight * 0.72;
+    }
+
+    private static bool ShouldUseDarkSystemTheme()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return (int?)key?.GetValue("AppsUseLightTheme") == 0;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static readonly nint HWND_TOPMOST = new(-1);
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_TOPMOST = 0x00000008;
+    private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint hWnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern nint SetWindowLongPtr(nint hWnd, int index, nint newLong);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(nint hWnd, out NativeRect lpRect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+}

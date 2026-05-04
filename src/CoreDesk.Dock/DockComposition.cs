@@ -16,11 +16,11 @@ using CoreDesk.Windows.Hardware;
 using CoreDesk.Windows.Integration;
 using CoreDesk.Windows.Status;
 
-namespace CoreDesk_App;
+namespace CoreDesk_Dock;
 
-public sealed class AppComposition : IDisposable
+public sealed class DockComposition : IDisposable
 {
-    public AppComposition(LaunchOptions options)
+    public DockComposition(LaunchOptions options)
     {
         Options = options;
         Diagnostics = new FileDiagnosticsService(options, FindRepositoryRoot());
@@ -28,9 +28,6 @@ public sealed class AppComposition : IDisposable
         ConfigurationStore = new JsonConfigurationStore();
 
         var useMocks = options.MockHardware;
-        SystemIntegration = useMocks
-            ? new MockSystemIntegrationService(Diagnostics)
-            : new WindowsSystemIntegrationService(Diagnostics);
         AppDiscovery = useMocks ? new MockAppDiscoveryService() : new StartMenuAppDiscoveryService();
         AppLauncher = useMocks ? new MockAppLauncher(Diagnostics) : new WindowsAppLauncher();
         RunningApps = useMocks ? new MockRunningAppService() : new WindowsRunningAppService();
@@ -43,6 +40,7 @@ public sealed class AppComposition : IDisposable
         ShellReplacement = useMocks
             ? new MockShellReplacementService()
             : new WindowsShellReplacementService(Diagnostics);
+        SystemIntegration = new DockOnlySystemIntegrationService(Diagnostics);
         SystemStatus = new SystemStatusService(PowerStatus, NetworkStatus);
         WidgetRegistry = new WidgetRegistry([new CoreDeskWidgetProvider(), new WindowsWidgetBridgeProvider()]);
         Autostart = useMocks ? new MockAutostartService() : new RegistryAutostartService();

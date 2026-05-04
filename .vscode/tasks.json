@@ -1,0 +1,20 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build CoreDesk App x64",
+            "type": "process",
+            "command": "C:\\Program Files\\dotnet\\dotnet.exe",
+            "args": [
+                "build",
+                "${workspaceFolder}\\src\\CoreDesk.App\\CoreDesk.App.csproj",
+                "-p:Platform=x64"
+            ],
+            "problemMatcher": "$msCompile",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

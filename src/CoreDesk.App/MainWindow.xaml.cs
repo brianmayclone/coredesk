@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using System.Runtime.InteropServices;
+using Windows.Graphics;
 
 namespace CoreDesk_App;
 
@@ -12,11 +13,10 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         AppWindow.SetIcon("Assets/AppIcon.ico");
-        AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+        UseFullScreenShell();
         Content.KeyDown += OnKeyDown;
         RootFrame.Navigated += (_, _) => _mainPage = RootFrame.Content as MainPage;
         RootFrame.Navigate(typeof(MainPage));
-        Activated += (_, _) => KeepTopMost();
     }
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
@@ -54,15 +54,33 @@ public sealed partial class MainWindow : Window
         _mainPage?.OpenTaskSwitcher();
     }
 
-    public void UseFullScreenShell()
+    public void ShowHome()
     {
-        AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
-        KeepTopMost();
+        _mainPage?.ShowHome();
     }
 
-    private static void KeepTopMost()
+    public void UseFullScreenShell()
     {
-        SetWindowPos(App.WindowHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        ExtendsContentIntoTitleBar = true;
+        AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        {
+            presenter.SetBorderAndTitleBar(false, false);
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
+        }
+
+        AppWindow.MoveAndResize(new RectInt32(0, 0, GetSystemMetrics(0), GetSystemMetrics(1)));
+        HideDwmChrome(WinRT.Interop.WindowNative.GetWindowHandle(this));
+    }
+
+    private static void HideDwmChrome(nint handle)
+    {
+        var cornerPreference = DWMWCP_DONOTROUND;
+        _ = DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
+        var borderColor = DWMWA_COLOR_NONE;
+        _ = DwmSetWindowAttribute(handle, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
     }
 
     private static bool IsControlAltPressed()
@@ -73,12 +91,14 @@ public sealed partial class MainWindow : Window
             && menu.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     }
 
-    private static readonly nint HWND_TOPMOST = new(-1);
-    private const uint SWP_NOMOVE = 0x0002;
-    private const uint SWP_NOSIZE = 0x0001;
-    private const uint SWP_NOACTIVATE = 0x0010;
-
     [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+    private static extern int GetSystemMetrics(int nIndex);
 
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWA_BORDER_COLOR = 34;
+    private const int DWMWCP_DONOTROUND = 1;
+    private const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 }

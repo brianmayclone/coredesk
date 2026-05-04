@@ -127,6 +127,15 @@ public sealed partial class MainPage : Page
         ViewModel.OpenTaskSwitcherCommand.Execute(null);
     }
 
+    public void ShowHome()
+    {
+        ViewModel.CloseTaskSwitcherCommand.Execute(null);
+        ViewModel.CloseControlCenterCommand.Execute(null);
+        ViewModel.CloseDrawerCommand.Execute(null);
+        ViewModel.CloseSettingsCommand.Execute(null);
+        App.Services.ShellMode.EnterTouchMode();
+    }
+
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ViewModel.IsControlCenterOpen) or nameof(ViewModel.IsTaskSwitcherOpen) or nameof(ViewModel.IsDrawerOpen) or nameof(ViewModel.IsSettingsOpen))
@@ -138,6 +147,10 @@ public sealed partial class MainPage : Page
             else if (ViewModel.IsDesktopMode)
             {
                 App.DockWindow?.ShowDock();
+            }
+            else
+            {
+                App.DockWindow?.ShowDock(homeMode: true);
             }
         }
 

@@ -45,17 +45,17 @@ public sealed class CoreDeskSmokeTests
             var window = app.GetMainWindow(automation, TimeSpan.FromSeconds(20));
 
             Assert.NotNull(window);
-            WaitForElementByName(window, "Open App Drawer", TimeSpan.FromSeconds(10));
+            WaitForAnyElementByName(window, "CoreDesk Homescreen", TimeSpan.FromSeconds(10));
             BringCoreDeskToFront();
             Thread.Sleep(2000);
             CapturePhysicalScreen(screenshotDirectory, "01-homescreen.png", screenshotFailures);
 
-            ClickAnyByName(window, "Utilities");
+            ClickAnyByName(automation, window, "Utilities");
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "02-folder-overlay.png", screenshotFailures);
 
             ClickByName(window, "Close Folder");
-            ClickByName(window, "Open App Drawer");
+            ClickDockByName(automation, "Open App Drawer");
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "03-appdrawer.png", screenshotFailures);
 
@@ -63,19 +63,26 @@ public sealed class CoreDeskSmokeTests
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "04-appdrawer-search.png", screenshotFailures);
 
-            ClickByName(window, "Open Settings");
+            ClickByName(window, "Close App Drawer");
+            ClickDockByName(automation, "Open Settings");
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "05-settings.png", screenshotFailures);
 
             ClickByName(window, "Close Settings");
-            ClickByName(window, "Open Control Center");
+            ClickDockByName(automation, "Open Control Center");
             BringCoreDeskToFront();
             CapturePhysicalScreen(screenshotDirectory, "06-control-center.png", screenshotFailures);
 
             ClickByName(window, "Close Control Center");
-            ClickByName(window, "Toggle Desktop Mode");
-            BringCoreDeskToFront();
-            CapturePhysicalScreen(screenshotDirectory, "07-desktop-dock-overlay.png", screenshotFailures);
+            using var notepad = StartExternalAppForOverlay();
+            try
+            {
+                CapturePhysicalScreen(screenshotDirectory, "07-desktop-dock-overlay.png", screenshotFailures);
+            }
+            finally
+            {
+                CloseExternalApp(notepad);
+            }
 
             ClickDockByName(automation, "Open Task Switcher");
             CapturePhysicalScreen(screenshotDirectory, "08-task-switcher.png", screenshotFailures);
@@ -109,6 +116,19 @@ public sealed class CoreDeskSmokeTests
         Thread.Sleep(500);
     }
 
+    private static void ClickAnyByName(UIA3Automation automation, Window window, string name)
+    {
+        var element = WaitForAnyElementByName(window, name, TimeSpan.FromSeconds(4));
+        if (element is null)
+        {
+            element = WaitForAnyElementByName(automation.GetDesktop(), name, TimeSpan.FromSeconds(4));
+        }
+
+        Assert.NotNull(element);
+        element.Click();
+        Thread.Sleep(500);
+    }
+
     private static void EnterTextByName(Window window, string name, string value)
     {
         var element = WaitForElementByName(window, name, ControlType.Edit, TimeSpan.FromSeconds(5));
@@ -129,10 +149,17 @@ public sealed class CoreDeskSmokeTests
         var end = DateTimeOffset.UtcNow + timeout;
         while (DateTimeOffset.UtcNow < end)
         {
-            var element = window.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(controlType)));
-            if (element is not null)
+            try
             {
-                return element;
+                var element = window.FindFirstDescendant(cf => cf.ByName(name).And(cf.ByControlType(controlType)));
+                if (element is not null)
+                {
+                    return element;
+                }
+            }
+            catch (COMException)
+            {
+                // Top-level WinUI overlays can briefly disturb UIA tree traversal while opening.
             }
 
             Thread.Sleep(250);
@@ -143,13 +170,25 @@ public sealed class CoreDeskSmokeTests
 
     private static AutomationElement? WaitForAnyElementByName(Window window, string name, TimeSpan timeout)
     {
+        return WaitForAnyElementByName((AutomationElement)window, name, timeout);
+    }
+
+    private static AutomationElement? WaitForAnyElementByName(AutomationElement root, string name, TimeSpan timeout)
+    {
         var end = DateTimeOffset.UtcNow + timeout;
         while (DateTimeOffset.UtcNow < end)
         {
-            var element = window.FindFirstDescendant(cf => cf.ByName(name));
-            if (element is not null)
+            try
             {
-                return element;
+                var element = root.FindFirstDescendant(cf => cf.ByName(name));
+                if (element is not null)
+                {
+                    return element;
+                }
+            }
+            catch (COMException)
+            {
+                // Retry after transient UIA tree changes.
             }
 
             Thread.Sleep(250);
@@ -243,6 +282,35 @@ public sealed class CoreDeskSmokeTests
         }
 
         Assert.Fail($"Dock button '{name}' was not found.");
+    }
+
+    private static System.Diagnostics.Process StartExternalAppForOverlay()
+    {
+        var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "notepad.exe",
+            UseShellExecute = true
+        });
+        Assert.NotNull(process);
+        Thread.Sleep(1400);
+        return process;
+    }
+
+    private static void CloseExternalApp(System.Diagnostics.Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup for screenshot isolation.
+        }
+
+        Thread.Sleep(500);
     }
 
     private static void AssertCoreDeskIsForeground()
@@ -487,7 +555,8 @@ public sealed class CoreDeskSmokeTests
 
         var root = FindRepositoryRoot();
         var candidates = Directory.EnumerateFiles(Path.Combine(root, "src", "CoreDesk.App", "bin"), "CoreDesk.App.exe", SearchOption.AllDirectories)
-            .Where(path => path.Contains($"{Path.DirectorySeparatorChar}x64{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+            .Where(path => path.Contains("win-x64", StringComparison.OrdinalIgnoreCase)
+                || path.Contains($"{Path.DirectorySeparatorChar}x64{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .ToList();
 

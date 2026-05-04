@@ -10,9 +10,29 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 {
     private const int SW_HIDE = 0;
     private const int SW_SHOW = 5;
+    private const int SM_CYSCREEN = 1;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
 
     private NotifyIcon? _trayIcon;
+    private readonly IDiagnosticsService? diagnostics;
     private bool _disposed;
+    private bool _taskbarSuppressed;
+    private readonly object _taskbarLock = new();
+    private readonly Dictionary<IntPtr, NativeRect> _taskbarPositions = [];
+    private readonly System.Threading.Timer _taskbarEnforcer;
+
+    public WindowsSystemIntegrationService(IDiagnosticsService? diagnostics = null)
+    {
+        this.diagnostics = diagnostics;
+        _taskbarEnforcer = new System.Threading.Timer(_ =>
+        {
+            if (_taskbarSuppressed)
+            {
+                SetTaskbarVisible(false);
+            }
+        }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+    }
 
     public event EventHandler<SystemIntegrationCommand>? CommandRequested;
 
@@ -23,10 +43,26 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 
     public void SetTaskbarVisible(bool visible)
     {
-        foreach (var taskbarHandle in EnumerateTaskbarWindows())
+        lock (_taskbarLock)
         {
-            ShowWindow(taskbarHandle, visible ? SW_SHOW : SW_HIDE);
-            EnableWindow(taskbarHandle, visible);
+            _taskbarSuppressed = !visible;
+            _taskbarEnforcer.Change(
+                visible ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(450),
+                visible ? Timeout.InfiniteTimeSpan : TimeSpan.FromMilliseconds(450));
+
+            var taskbarWindows = EnumerateTaskbarWindows();
+            diagnostics?.Info($"Windows taskbar visibility requested: {visible}; windows found: {taskbarWindows.Count}.");
+            foreach (var taskbarHandle in taskbarWindows)
+            {
+                if (visible)
+                {
+                    RestoreTaskbar(taskbarHandle);
+                }
+                else
+                {
+                    HideTaskbar(taskbarHandle);
+                }
+            }
         }
     }
 
@@ -71,13 +107,61 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         }
 
         _disposed = true;
+        _taskbarEnforcer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         SetTaskbarVisible(true);
+        _taskbarEnforcer.Dispose();
         _trayIcon?.Dispose();
     }
 
     private void Request(SystemIntegrationCommand command)
     {
         CommandRequested?.Invoke(this, command);
+    }
+
+    private void HideTaskbar(IntPtr taskbarHandle)
+    {
+        if (!_taskbarPositions.ContainsKey(taskbarHandle) && GetWindowRect(taskbarHandle, out var rect))
+        {
+            _taskbarPositions[taskbarHandle] = rect;
+            diagnostics?.Info($"Stored taskbar {taskbarHandle} rect: {rect.Left},{rect.Top},{rect.Right},{rect.Bottom}.");
+        }
+
+        EnableWindow(taskbarHandle, false);
+        ShowWindow(taskbarHandle, SW_HIDE);
+
+        if (_taskbarPositions.TryGetValue(taskbarHandle, out var original))
+        {
+            var width = Math.Max(1, original.Right - original.Left);
+            var height = Math.Max(1, original.Bottom - original.Top);
+            _ = SetWindowPos(
+                taskbarHandle,
+                IntPtr.Zero,
+                original.Left,
+                GetSystemMetrics(SM_CYSCREEN) + 80,
+                width,
+                height,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            diagnostics?.Info($"Moved taskbar {taskbarHandle} offscreen and hid it.");
+        }
+    }
+
+    private void RestoreTaskbar(IntPtr taskbarHandle)
+    {
+        EnableWindow(taskbarHandle, true);
+        if (_taskbarPositions.TryGetValue(taskbarHandle, out var original))
+        {
+            _ = SetWindowPos(
+                taskbarHandle,
+                IntPtr.Zero,
+                original.Left,
+                original.Top,
+                Math.Max(1, original.Right - original.Left),
+                Math.Max(1, original.Bottom - original.Top),
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
+        ShowWindow(taskbarHandle, SW_SHOW);
+        diagnostics?.Info($"Restored taskbar {taskbarHandle}.");
     }
 
     private static IReadOnlyList<IntPtr> EnumerateTaskbarWindows()
@@ -111,10 +195,28 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private static extern bool EnableWindow(IntPtr hWnd, bool bEnable);
 
     [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 }

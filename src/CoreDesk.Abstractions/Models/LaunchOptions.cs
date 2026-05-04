@@ -10,6 +10,8 @@ public sealed class LaunchOptions
 
     public bool MockHardware { get; init; }
 
+    public bool ReplaceExplorerForSession { get; init; }
+
     public string? LanguageOverride { get; init; }
 
     public string RunId { get; init; } = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
@@ -34,6 +36,7 @@ public sealed class LaunchOptions
             ResetConfig = tokens.Contains("--reset-config", StringComparer.OrdinalIgnoreCase),
             Diagnostics = tokens.Contains("--diagnostics", StringComparer.OrdinalIgnoreCase),
             MockHardware = tokens.Contains("--mock-hardware", StringComparer.OrdinalIgnoreCase),
+            ReplaceExplorerForSession = tokens.Contains("--replace-explorer-for-session", StringComparer.OrdinalIgnoreCase),
             LanguageOverride = language
         };
     }
@@ -48,4 +51,3 @@ public sealed class LaunchOptions
         return arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     }
 }
-
