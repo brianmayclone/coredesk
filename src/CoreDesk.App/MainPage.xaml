@@ -206,19 +206,34 @@
                                     </Border>
                                 </Grid>
                             </Border>
-                            <TextBlock
-                                Text="{x:Bind DisplayName, Mode=OneWay}"
-                                TextAlignment="Center"
-                                TextWrapping="Wrap"
-                                MaxLines="2"
-                                Translation="0,0,8"
-                                Foreground="White"
-                                FontWeight="SemiBold"
-                                FontSize="14">
-                                <TextBlock.Shadow>
-                                    <ThemeShadow />
-                                </TextBlock.Shadow>
-                            </TextBlock>
+                            <Grid>
+                                <TextBlock
+                                    Margin="0,1,0,0"
+                                    Text="{x:Bind DisplayName, Mode=OneWay}"
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap"
+                                    MaxLines="2"
+                                    Foreground="#66000000"
+                                    FontWeight="SemiBold"
+                                    FontSize="14" />
+                                <TextBlock
+                                    Margin="0,2,0,0"
+                                    Text="{x:Bind DisplayName, Mode=OneWay}"
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap"
+                                    MaxLines="2"
+                                    Foreground="#33000000"
+                                    FontWeight="SemiBold"
+                                    FontSize="14" />
+                                <TextBlock
+                                    Text="{x:Bind DisplayName, Mode=OneWay}"
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap"
+                                    MaxLines="2"
+                                    Foreground="White"
+                                    FontWeight="SemiBold"
+                                    FontSize="14" />
+                            </Grid>
                         </StackPanel>
                     </DataTemplate>
                 </GridView.ItemTemplate>

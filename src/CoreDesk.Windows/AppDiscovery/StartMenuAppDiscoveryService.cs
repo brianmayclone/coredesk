@@ -50,7 +50,7 @@ public sealed class StartMenuAppDiscoveryService : IAppDiscoveryService
             }
         }
 
-        foreach (var storeApp in await StoreAppDiscoveryService.DiscoverAppsAsync(cancellationToken))
+        foreach (var storeApp in await StoreAppDiscoveryService.DiscoverAppsAsync(_iconCache, cancellationToken))
         {
             entries.TryAdd(storeApp.AppUserModelId ?? storeApp.Id, storeApp);
         }

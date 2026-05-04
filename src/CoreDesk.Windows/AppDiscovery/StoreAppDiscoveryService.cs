@@ -4,7 +4,7 @@ namespace CoreDesk.Windows.AppDiscovery;
 
 internal static class StoreAppDiscoveryService
 {
-    public static async Task<IReadOnlyList<AppEntry>> DiscoverAppsAsync(CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<AppEntry>> DiscoverAppsAsync(WindowsIconCache iconCache, CancellationToken cancellationToken)
     {
         var apps = new List<AppEntry>();
 
@@ -45,11 +45,15 @@ internal static class StoreAppDiscoveryService
                         displayName = package.Id.Name;
                     }
 
+                    var id = $"store-{StableId(appUserModelId)}";
+                    var iconPath = await iconCache.GetOrCreateStoreIconPathAsync(id, entry.DisplayInfo.GetLogo(new global::Windows.Foundation.Size(256, 256)));
+
                     apps.Add(new AppEntry(
-                        $"store-{StableId(appUserModelId)}",
+                        id,
                         displayName.Trim(),
                         AppKind.Store,
                         AppUserModelId: appUserModelId,
+                        IconPath: iconPath,
                         LaunchPath: $@"shell:AppsFolder\{appUserModelId}"));
                 }
             }

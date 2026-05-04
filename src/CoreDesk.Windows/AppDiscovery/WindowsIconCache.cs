@@ -48,6 +48,82 @@ internal sealed class WindowsIconCache
         }
     }
 
+    public async Task<string?> GetOrCreateStoreIconPathAsync(string id, global::Windows.Storage.Streams.IRandomAccessStreamReference? logo)
+    {
+        if (logo is null)
+        {
+            return null;
+        }
+
+        var cachePath = Path.Combine(_cacheDirectory, $"{SafeFileName(id)}-store-v2.png");
+        if (File.Exists(cachePath))
+        {
+            return cachePath;
+        }
+
+        try
+        {
+            using var stream = await logo.OpenReadAsync();
+            if (stream.Size == 0 || stream.Size > int.MaxValue)
+            {
+                return null;
+            }
+
+            var buffer = new global::Windows.Storage.Streams.Buffer((uint)stream.Size);
+            await stream.ReadAsync(buffer, buffer.Capacity, global::Windows.Storage.Streams.InputStreamOptions.None);
+            global::Windows.Security.Cryptography.CryptographicBuffer.CopyToByteArray(buffer, out var bytes);
+
+            using var input = new MemoryStream(bytes);
+            using var bitmap = new Bitmap(input);
+            using var trimmed = TrimTransparentPadding(bitmap);
+            trimmed.Save(cachePath, ImageFormat.Png);
+            return cachePath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Bitmap TrimTransparentPadding(Bitmap source)
+    {
+        var bounds = FindContentBounds(source);
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return new Bitmap(source);
+        }
+
+        return source.Clone(bounds, PixelFormat.Format32bppArgb);
+    }
+
+    private static Rectangle FindContentBounds(Bitmap source)
+    {
+        var left = source.Width;
+        var top = source.Height;
+        var right = -1;
+        var bottom = -1;
+
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                if (source.GetPixel(x, y).A < 16)
+                {
+                    continue;
+                }
+
+                left = Math.Min(left, x);
+                top = Math.Min(top, y);
+                right = Math.Max(right, x);
+                bottom = Math.Max(bottom, y);
+            }
+        }
+
+        return right < left || bottom < top
+            ? Rectangle.Empty
+            : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
+    }
+
     private static string? ResolveIconSource(string? executablePath, string? shortcutPath)
     {
         if (!string.IsNullOrWhiteSpace(shortcutPath) && File.Exists(shortcutPath))
