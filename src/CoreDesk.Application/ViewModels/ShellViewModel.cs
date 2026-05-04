@@ -559,6 +559,14 @@ public sealed partial class ShellViewModel(
         diagnostics.Info($"Moved dock app '{appId}' to index {targetIndex}.");
     }
 
+    public async Task MoveDockAppToHomeAsync(string appId, int targetIndex, CancellationToken cancellationToken = default)
+    {
+        _layoutService.RemoveAppFromDock(_layout, appId);
+        await MoveHomeAppAsync(appId, targetIndex, cancellationToken);
+        await RefreshAppCollectionsAsync(cancellationToken);
+        diagnostics.Info($"Moved dock app '{appId}' from dock to home index {targetIndex}.");
+    }
+
     public async Task MoveHomeAppAsync(string appId, int targetIndex, CancellationToken cancellationToken = default)
     {
         if (!_allApps.Any(app => app.Id.Equals(appId, StringComparison.OrdinalIgnoreCase)))
@@ -621,6 +629,55 @@ public sealed partial class ShellViewModel(
         diagnostics.Info($"Moved home folder '{folderId}' to page {CurrentPageIndex}, index {index}.");
     }
 
+    public async Task RemoveHomeAppAsync(AppEntry? app, CancellationToken cancellationToken = default)
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        var removed = false;
+        foreach (var page in _layout.Pages)
+        {
+            removed |= page.Tiles.RemoveAll(tile => tile.AppId.Equals(app.Id, StringComparison.OrdinalIgnoreCase)) > 0;
+            NormalizePageTiles(page);
+        }
+
+        if (!removed)
+        {
+            diagnostics.Info($"Home remove ignored; app '{app.Id}' is not on the current layout.");
+            return;
+        }
+
+        CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, PageCount - 1);
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        RefreshHomeTiles();
+        RefreshPageIndicators();
+        diagnostics.Info($"Removed home app '{app.Id}' from the home screen.");
+    }
+
+    public void OpenAppInfo(AppEntry? app)
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        systemIntegrationService.OpenSystemPanel("ms-settings:appsfeatures");
+        diagnostics.Info($"Opened app info settings for '{app.Id}'.");
+    }
+
+    public void OpenAppUninstall(AppEntry? app)
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        systemIntegrationService.OpenSystemPanel("ms-settings:appsfeatures");
+        diagnostics.Info($"Opened app uninstall settings for '{app.Id}'.");
+    }
+
     public bool MoveToAdjacentPageForDrag(int direction, bool allowCreatePage)
     {
         if (direction < 0)
@@ -656,8 +713,12 @@ public sealed partial class ShellViewModel(
             return;
         }
 
+        var sourceIndex = _layout.Widgets.IndexOf(widget);
         _layout.Widgets.Remove(widget);
-        var index = Math.Clamp(targetIndex, 0, _layout.Widgets.Count);
+        var adjustedTargetIndex = sourceIndex >= 0 && sourceIndex < targetIndex
+            ? targetIndex - 1
+            : targetIndex;
+        var index = Math.Clamp(adjustedTargetIndex, 0, _layout.Widgets.Count);
         _layout.Widgets.Insert(index, widget);
         for (var widgetIndex = 0; widgetIndex < _layout.Widgets.Count; widgetIndex++)
         {
@@ -668,6 +729,23 @@ public sealed partial class ShellViewModel(
         await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
         RefreshWidgets();
         diagnostics.Info($"Moved widget '{widgetId}' to index {index}.");
+    }
+
+    public void PreviewMoveWidget(string widgetId, int column, int row)
+    {
+        MoveWidgetInMemory(widgetId, column, row, isDragging: true);
+    }
+
+    public async Task PlaceWidgetAsync(string widgetId, int column, int row, CancellationToken cancellationToken = default)
+    {
+        if (!MoveWidgetInMemory(widgetId, column, row, isDragging: false))
+        {
+            diagnostics.Info($"Widget place ignored; widget '{widgetId}' was not found.");
+            return;
+        }
+
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        diagnostics.Info($"Placed widget '{widgetId}' at column {column}, row {row}.");
     }
 
     public bool HasApp(string appId)
@@ -822,6 +900,55 @@ public sealed partial class ShellViewModel(
             Widgets.Add(widget.Kind.Equals("clock", StringComparison.OrdinalIgnoreCase)
                 ? new HomeWidgetViewModel(widget, DateTime.Now.ToString("HH:mm"), DateTime.Now.ToString("dddd, MMM d"))
                 : new HomeWidgetViewModel(widget, BatteryLabel, $"{NetworkLabel} · {KeyboardLabel}"));
+        }
+    }
+
+    private bool MoveWidgetInMemory(string widgetId, int column, int row, bool isDragging)
+    {
+        var widget = _layout.Widgets.FirstOrDefault(candidate => candidate.Id.Equals(widgetId, StringComparison.OrdinalIgnoreCase));
+        if (widget is null)
+        {
+            return false;
+        }
+
+        var previousColumn = widget.Column;
+        var previousRow = widget.Row;
+        var targetColumn = Math.Clamp(column, 0, Math.Max(0, 8 - widget.ColumnSpan));
+        var targetRow = Math.Clamp(row, 0, 3);
+        var displacedWidget = _layout.Widgets.FirstOrDefault(candidate =>
+            !candidate.Id.Equals(widget.Id, StringComparison.OrdinalIgnoreCase)
+            && WidgetsOverlap(targetColumn, targetRow, widget.ColumnSpan, widget.RowSpan, candidate.Column, candidate.Row, candidate.ColumnSpan, candidate.RowSpan));
+        widget.Column = targetColumn;
+        widget.Row = targetRow;
+        if (displacedWidget is not null)
+        {
+            displacedWidget.Column = previousColumn;
+            displacedWidget.Row = previousRow;
+        }
+
+        RefreshWidgets(widgetId, isDragging);
+        return true;
+    }
+
+    private static bool WidgetsOverlap(int leftColumn, int leftRow, int leftColumnSpan, int leftRowSpan, int rightColumn, int rightRow, int rightColumnSpan, int rightRowSpan)
+    {
+        return leftColumn < rightColumn + rightColumnSpan
+            && leftColumn + leftColumnSpan > rightColumn
+            && leftRow < rightRow + rightRowSpan
+            && leftRow + leftRowSpan > rightRow;
+    }
+
+    private void RefreshWidgets(string? draggingWidgetId, bool isDragging)
+    {
+        Widgets.Clear();
+        foreach (var widget in _layout.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column))
+        {
+            var isDraggedWidget = isDragging
+                && draggingWidgetId is not null
+                && widget.Id.Equals(draggingWidgetId, StringComparison.OrdinalIgnoreCase);
+            Widgets.Add(widget.Kind.Equals("clock", StringComparison.OrdinalIgnoreCase)
+                ? new HomeWidgetViewModel(widget, DateTime.Now.ToString("HH:mm"), DateTime.Now.ToString("dddd, MMM d")) { Opacity = isDraggedWidget ? 0.56 : 1 }
+                : new HomeWidgetViewModel(widget, BatteryLabel, $"{NetworkLabel} · {KeyboardLabel}") { Opacity = isDraggedWidget ? 0.56 : 1 });
         }
     }
 

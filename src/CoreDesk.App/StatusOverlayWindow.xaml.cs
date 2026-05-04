@@ -169,7 +169,7 @@ public sealed partial class StatusOverlayWindow : Window
 
     private static void OpenControlCenter()
     {
-        App.ShowMainShell(openControlCenter: true);
+        App.ShowControlCenterOverlay();
     }
 
     private static void SetPopupWindowStyle(nint handle)

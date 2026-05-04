@@ -352,6 +352,7 @@ public partial class App : Application
             _windowsKeyHook = null;
             _workAreaEnforcer?.Stop();
             _workAreaEnforcer = null;
+            ControlCenterWindow?.Close();
             DockWindow?.Close();
             StatusWindow?.Close();
             Services?.SystemIntegration.Dispose();

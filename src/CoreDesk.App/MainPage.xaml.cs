@@ -22,8 +22,13 @@ public sealed partial class MainPage : Page
     private int _lastPageIndex;
     private int _pageAnimationDirection = 1;
     private bool _isDraggingHomeItem;
+    private bool _isDraggingWidget;
+    private string? _draggedWidgetId;
+    private int _lastWidgetDragColumn;
+    private int _lastWidgetDragRow;
     private bool _createdPageDuringCurrentDrag;
     private bool _homeInitializationCompleted;
+    private bool _suppressNextHomeTileTap;
 
     public ShellViewModel ViewModel { get; } = App.ShellViewModel;
 
@@ -32,6 +37,8 @@ public sealed partial class MainPage : Page
         InitializeComponent();
         DataContext = ViewModel;
         HomeGrid.RenderTransform = new TranslateTransform();
+        WidgetsStrip.LayoutUpdated += OnWidgetsStripLayoutUpdated;
+        HomeAppContextMenu.Closed += (_, _) => _suppressNextHomeTileTap = false;
         Loaded += OnLoaded;
         AddHandler(PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnRootPointerReleased), true);
@@ -148,6 +155,12 @@ public sealed partial class MainPage : Page
     {
         e.Handled = true;
 
+        if (_suppressNextHomeTileTap || HomeAppContextMenu.IsOpen)
+        {
+            _suppressNextHomeTileTap = false;
+            return;
+        }
+
         if (sender is not FrameworkElement { DataContext: HomeTileViewModel tile })
         {
             return;
@@ -163,6 +176,55 @@ public sealed partial class MainPage : Page
         {
             ViewModel.OpenFolderCommand.Execute(folder);
             Bindings.Update();
+        }
+    }
+
+    private void OnHomeTileRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        ShowHomeTileContextMenu(sender as FrameworkElement);
+    }
+
+    private void OnHomeTileHolding(object sender, HoldingRoutedEventArgs e)
+    {
+        if (!e.HoldingState.ToString().Equals("Started", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        ShowHomeTileContextMenu(sender as FrameworkElement);
+    }
+
+    private void ShowHomeTileContextMenu(FrameworkElement? element)
+    {
+        if (element?.DataContext is not HomeTileViewModel { App: { } app })
+        {
+            return;
+        }
+
+        _suppressNextHomeTileTap = true;
+        ResetTilePressedVisual(element);
+        HomeAppContextMenu.ShowFor(element, app, ViewModel.UiScale);
+    }
+
+    private async void OnHomeAppContextMenuActionRequested(object? sender, AppIconContextMenuActionRequestedEventArgs e)
+    {
+        switch (e.Action)
+        {
+            case AppIconContextMenuAction.Open:
+                await ViewModel.LaunchAppCommand.ExecuteAsync(e.App);
+                break;
+            case AppIconContextMenuAction.Info:
+                ViewModel.OpenAppInfo(e.App);
+                break;
+            case AppIconContextMenuAction.RemoveFromHome:
+                await ViewModel.RemoveHomeAppAsync(e.App);
+                Bindings.Update();
+                break;
+            case AppIconContextMenuAction.Delete:
+                ViewModel.OpenAppUninstall(e.App);
+                break;
         }
     }
 
@@ -261,6 +323,11 @@ public sealed partial class MainPage : Page
         args.Data.RequestedOperation = DataPackageOperation.Move;
         args.Data.Properties.Title = widget.Title;
         args.Data.SetText($"coredesk-widget:{widget.Widget.Id}");
+        _isDraggingWidget = true;
+        _draggedWidgetId = widget.Widget.Id;
+        _lastWidgetDragColumn = widget.Widget.Column;
+        _lastWidgetDragRow = widget.Widget.Row;
+        ViewModel.PreviewMoveWidget(widget.Widget.Id, _lastWidgetDragColumn, _lastWidgetDragRow);
     }
 
     private void OnHomeGridDragOver(object sender, DragEventArgs e)
@@ -283,6 +350,14 @@ public sealed partial class MainPage : Page
         var point = e.GetPosition(HomeGrid);
         var targetIndex = GetHomeTileTargetIndex(point);
 
+        const string dockAppPrefix = "coredesk-dock-app:";
+        if (text.StartsWith(dockAppPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            await ViewModel.MoveDockAppToHomeAsync(text[dockAppPrefix.Length..], targetIndex);
+            Bindings.Update();
+            return;
+        }
+
         const string appPrefix = "coredesk-app:";
         if (text.StartsWith(appPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -303,21 +378,91 @@ public sealed partial class MainPage : Page
     {
         e.AcceptedOperation = DataPackageOperation.Move;
         e.DragUIOverride.IsCaptionVisible = false;
+        e.Handled = true;
+
+        if (_isDraggingWidget)
+        {
+            PreviewWidgetDrop(e.GetPosition(WidgetsStrip));
+        }
+    }
+
+    private void OnWidgetDragLeave(object sender, DragEventArgs e)
+    {
+    }
+
+    private void OnWidgetsStripLayoutUpdated(object? sender, object e)
+    {
+        foreach (var widget in ViewModel.Widgets)
+        {
+            if (WidgetsStrip.ContainerFromItem(widget) is UIElement container)
+            {
+                Canvas.SetLeft(container, widget.Left);
+                Canvas.SetTop(container, widget.Top);
+            }
+        }
     }
 
     private async void OnWidgetDrop(object sender, DragEventArgs e)
     {
         var text = await e.DataView.GetTextAsync();
+        _isDraggingWidget = false;
+
         const string prefix = "coredesk-widget:";
         if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
+            _draggedWidgetId = null;
             return;
         }
 
         var point = e.GetPosition(WidgetsStrip);
-        var targetIndex = Math.Clamp((int)Math.Round(point.X / 398d), 0, ViewModel.Widgets.Count);
-        await ViewModel.MoveWidgetAsync(text[prefix.Length..], targetIndex);
+        var (column, row) = GetWidgetDropCell(point);
+        await ViewModel.PlaceWidgetAsync(text[prefix.Length..], column, row);
+        _draggedWidgetId = null;
         Bindings.Update();
+    }
+
+    private async void OnWidgetDragCompleted(UIElement sender, DropCompletedEventArgs args)
+    {
+        if (_isDraggingWidget && _draggedWidgetId is not null)
+        {
+            await ViewModel.PlaceWidgetAsync(_draggedWidgetId, _lastWidgetDragColumn, _lastWidgetDragRow);
+            Bindings.Update();
+        }
+
+        _isDraggingWidget = false;
+        _draggedWidgetId = null;
+        if (sender is FrameworkElement element)
+        {
+            ResetTilePressedVisual(element);
+        }
+    }
+
+    private void PreviewWidgetDrop(Windows.Foundation.Point point)
+    {
+        if (_draggedWidgetId is null)
+        {
+            return;
+        }
+
+        var (column, row) = GetWidgetDropCell(point);
+        if (column == _lastWidgetDragColumn && row == _lastWidgetDragRow)
+        {
+            return;
+        }
+
+        _lastWidgetDragColumn = column;
+        _lastWidgetDragRow = row;
+        ViewModel.PreviewMoveWidget(_draggedWidgetId, column, row);
+        Bindings.Update();
+    }
+
+    private static (int Column, int Row) GetWidgetDropCell(Windows.Foundation.Point point)
+    {
+        const double cellStrideX = 199;
+        const double cellStrideY = 150;
+        return (
+            Math.Clamp((int)Math.Round(point.X / cellStrideX), 0, 7),
+            Math.Clamp((int)Math.Round(point.Y / cellStrideY), 0, 3));
     }
 
     private void UpdateDragPageSwitch(Windows.Foundation.Point point)
@@ -524,6 +669,11 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        ResetTilePressedVisual(element);
+    }
+
+    private static void ResetTilePressedVisual(FrameworkElement element)
+    {
         element.Opacity = 1;
         element.RenderTransform = new ScaleTransform
         {
@@ -563,7 +713,7 @@ public sealed partial class MainPage : Page
 
     public void OpenControlCenter()
     {
-        ViewModel.OpenControlCenterCommand.Execute(null);
+        App.ShowControlCenterOverlay();
     }
 
     public void OpenTaskSwitcher()
@@ -575,6 +725,7 @@ public sealed partial class MainPage : Page
     {
         ViewModel.CloseTaskSwitcherCommand.Execute(null);
         ViewModel.CloseControlCenterCommand.Execute(null);
+        App.HideControlCenterOverlay();
         ViewModel.CloseDrawerCommand.Execute(null);
         ViewModel.CloseSettingsCommand.Execute(null);
         App.Services.ShellMode.EnterTouchMode();

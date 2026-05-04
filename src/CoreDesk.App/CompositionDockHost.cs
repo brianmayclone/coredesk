@@ -5,6 +5,7 @@ using System.Drawing.Imaging;
 using System.Collections.Specialized;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using Windows.UI.Composition;
 using Windows.UI.Composition.Desktop;
@@ -23,9 +24,12 @@ public sealed class CompositionDockHost : IDisposable
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _visibilityTimer;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _animationTimer;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _pressAnimationTimer;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _layerRepairTimer;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _dropAnimationTimer;
     private Compositor? _compositor;
     private DesktopWindowTarget? _target;
     private ContainerVisual? _root;
+    private DockDropTarget? _dropTarget;
     private string? _lastVisualSignature;
     private nint _dispatcherQueueController;
     private nint _hwnd;
@@ -36,13 +40,21 @@ public sealed class CompositionDockHost : IDisposable
     private bool _isAutoHidden;
     private bool _isAnimating;
     private bool _homeMode = true;
+    private bool _oleInitialized;
+    private bool _dragStarted;
+    private bool _isDragHoveringDock;
     private DockHitTarget? _pressedTarget;
     private string? _pressedVisualId;
+    private Windows.Foundation.Point _mouseDownPoint;
     private DateTime _pressAnimationStartedAt = DateTime.MinValue;
     private DateTime? _foregroundOverlapSince;
+    private float _dropSlotProgress;
+    private float _dropSlotTargetProgress;
+    private int _dropTargetIndex = -1;
     private int _visibleTop;
     private int _hiddenTop;
     private int _animationTargetTop;
+    private int _layerRepairTicksRemaining;
     private int _left;
     private int _top;
     private int _width;
@@ -78,8 +90,7 @@ public sealed class CompositionDockHost : IDisposable
             RebuildVisualTree(force: _lastVisualSignature is null);
             ShowWindow(_hwnd, SW_SHOWNOACTIVATE);
             ShowWindow(_iconHwnd, SW_SHOWNOACTIVATE);
-            SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            SetWindowPos(_iconHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            EnsureDockLayerOrder();
             App.Services.Diagnostics.Info($"Composition dock shown. Hwnd={_hwnd}; Bounds={_width}x{_height}; HomeMode={_homeMode}; Pinned={_viewModel.PinnedDockItems.Count}; Running={_viewModel.RunningDockItems.Count}.");
         }
         catch (Exception exception)
@@ -92,6 +103,7 @@ public sealed class CompositionDockHost : IDisposable
     {
         if (_iconHwnd != 0)
         {
+            RevokeDockDropTarget();
             DestroyWindow(_iconHwnd);
             _iconHwnd = 0;
         }
@@ -118,6 +130,8 @@ public sealed class CompositionDockHost : IDisposable
         _visibilityTimer?.Stop();
         _animationTimer?.Stop();
         _pressAnimationTimer?.Stop();
+        _layerRepairTimer?.Stop();
+        _dropAnimationTimer?.Stop();
         foreach (var brush in _iconBrushes.Values)
         {
             brush.Dispose();
@@ -133,6 +147,11 @@ public sealed class CompositionDockHost : IDisposable
         _target?.Dispose();
         _compositor?.Dispose();
         Close();
+        if (_oleInitialized)
+        {
+            OleUninitialize();
+            _oleInitialized = false;
+        }
     }
 
     private void EnsureWindow()
@@ -187,7 +206,7 @@ public sealed class CompositionDockHost : IDisposable
             0,
             1,
             1,
-            0,
+            _hwnd,
             0,
             instance,
             0);
@@ -201,6 +220,7 @@ public sealed class CompositionDockHost : IDisposable
         _target = CreateDesktopWindowTarget(_compositor, _hwnd);
         _root = _compositor.CreateContainerVisual();
         _target.Root = _root;
+        RegisterDockDropTarget();
         _initialized = true;
         StartVisibilityMonitor();
     }
@@ -231,11 +251,12 @@ public sealed class CompositionDockHost : IDisposable
         var itemGap = Scale(12, scale);
         var sidePadding = Scale(22, scale);
         var sideShadow = Scale(28, scale);
-        var itemCount = 1
-            + Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8)
-            + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
-        var separatorGap = _viewModel.RunningDockItems.Count > 0 ? Scale(18, scale) : 0;
-        var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap) + separatorGap;
+        var pinnedItemCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8);
+        var runningItemCount = Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
+        var itemCount = 1 + pinnedItemCount + runningItemCount;
+        var separatorGap = runningItemCount > 0 ? Scale(18, scale) : 0;
+        var dropSlotExtent = ScaleDropSlot(iconSlot + itemGap);
+        var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap) + separatorGap + dropSlotExtent;
         var dockWidth = contentWidth + (sidePadding * 2);
         return new DockMetrics(
             scale,
@@ -250,7 +271,10 @@ public sealed class CompositionDockHost : IDisposable
             Math.Max(Scale(132, scale), iconSlot + Scale(54, scale)),
             Scale(16, scale),
             Scale(34, scale),
-            sideShadow);
+            sideShadow,
+            pinnedItemCount,
+            runningItemCount,
+            dropSlotExtent);
     }
 
     private void RebuildVisualTree(bool force = false)
@@ -299,17 +323,20 @@ public sealed class CompositionDockHost : IDisposable
         _root.Children.InsertAtTop(stroke);
 
         var visualIndex = 0;
-        var itemCount = 1 + Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8) + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
-        var contentWidth = (itemCount * metrics.IconSlot) + (Math.Max(0, itemCount - 1) * metrics.ItemGap) + (_viewModel.RunningDockItems.Count > 0 ? metrics.SeparatorGap : 0);
+        var contentWidth = GetDockContentWidth(metrics);
         var x = (_width - contentWidth) / 2f;
         var y = (float)dockRect.Y + (((float)dockRect.Height - metrics.IconSlot) / 2f);
         AddHomeIcon(x, y, metrics, GetSlotVisualId(visualIndex++));
         x += metrics.IconSlot + metrics.ItemGap;
 
+        var appIndex = 0;
+        ApplyDropSlotSpacing(ref x, appIndex, metrics);
         foreach (var item in _viewModel.PinnedDockItems.Take(8))
         {
             AddDockItem(item, x, y, metrics, GetSlotVisualId(visualIndex++));
             x += metrics.IconSlot + metrics.ItemGap;
+            appIndex++;
+            ApplyDropSlotSpacing(ref x, appIndex, metrics);
         }
 
         if (_viewModel.RunningDockItems.Count > 0)
@@ -341,6 +368,48 @@ public sealed class CompositionDockHost : IDisposable
         _hitTargets.Add(new DockHitTarget(new Windows.Foundation.Rect(x, y, metrics.IconSlot, metrics.IconSlot), item, false, visualId));
     }
 
+    private static int GetDockContentWidth(DockMetrics metrics)
+    {
+        var itemCount = 1 + Math.Max(0, metrics.PinnedItemCount) + Math.Max(0, metrics.RunningItemCount);
+        return (itemCount * metrics.IconSlot)
+            + (Math.Max(0, itemCount - 1) * metrics.ItemGap)
+            + (metrics.RunningItemCount > 0 ? metrics.SeparatorGap : 0)
+            + metrics.DropSlotExtent;
+    }
+
+    private void ApplyDropSlotSpacing(ref float x, int appIndex, DockMetrics metrics)
+    {
+        if (metrics.DropSlotExtent <= 0 || !_isDragHoveringDock || _dropTargetIndex != appIndex)
+        {
+            return;
+        }
+
+        x += metrics.DropSlotExtent;
+    }
+
+    private void DrawDropSlotOverlayIfNeeded(System.Drawing.Graphics graphics, DockMetrics metrics, ref int x, int y, int appIndex)
+    {
+        if (metrics.DropSlotExtent <= 0 || !_isDragHoveringDock || _dropTargetIndex != appIndex)
+        {
+            return;
+        }
+
+        var progress = EaseOutCubic(_dropSlotProgress);
+        var slotX = x + ((metrics.DropSlotExtent - metrics.IconSlot) / 2);
+        var outer = new System.Drawing.Rectangle(slotX, y, metrics.IconSlot, metrics.IconSlot);
+        var size = Math.Max(1, (int)Math.Round(metrics.IconSize * Math.Clamp(progress, 0.25f, 1f)));
+        var slot = Centered(outer, size);
+        using var path = RoundedRect(slot, Math.Max(12, slot.Width / 5));
+        using var fill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb((int)Math.Round(62 * progress), 255, 255, 255));
+        using var stroke = new System.Drawing.Pen(System.Drawing.Color.FromArgb((int)Math.Round(152 * progress), 255, 255, 255), Math.Max(1f, metrics.DpiScale))
+        {
+            DashStyle = DashStyle.Dash
+        };
+        graphics.FillPath(fill, path);
+        graphics.DrawPath(stroke, path);
+        x += metrics.DropSlotExtent;
+    }
+
     private void RenderIconOverlay(DockMetrics metrics, Windows.Foundation.Rect dockRect)
     {
         if (_iconHwnd == 0 || _width <= 0 || _height <= 0)
@@ -357,18 +426,21 @@ public sealed class CompositionDockHost : IDisposable
             graphics.Clear(System.Drawing.Color.Transparent);
 
             var visualIndex = 0;
-            var itemCount = 1 + Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8) + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
-            var contentWidth = (itemCount * metrics.IconSlot) + (Math.Max(0, itemCount - 1) * metrics.ItemGap) + (_viewModel.RunningDockItems.Count > 0 ? metrics.SeparatorGap : 0);
+            var contentWidth = GetDockContentWidth(metrics);
             var x = (int)Math.Round((_width - contentWidth) / 2f);
             var y = (int)Math.Round(dockRect.Y + ((dockRect.Height - metrics.IconSlot) / 2f));
             var homeBounds = Centered(new System.Drawing.Rectangle(x, y, metrics.IconSlot, metrics.IconSlot), metrics.IconSize);
             DrawHomeIconOverlay(graphics, ApplyTapVisual(graphics, homeBounds, GetSlotVisualId(visualIndex++), metrics), metrics);
             x += metrics.IconSlot + metrics.ItemGap;
 
+            var appIndex = 0;
+            DrawDropSlotOverlayIfNeeded(graphics, metrics, ref x, y, appIndex);
             foreach (var item in _viewModel.PinnedDockItems.Take(8))
             {
                 DrawDockItemOverlay(graphics, item, new System.Drawing.Rectangle(x, y, metrics.IconSlot, metrics.IconSlot), metrics, GetSlotVisualId(visualIndex++), showIndicator: item.IsRunning);
                 x += metrics.IconSlot + metrics.ItemGap;
+                appIndex++;
+                DrawDropSlotOverlayIfNeeded(graphics, metrics, ref x, y, appIndex);
             }
 
             if (_viewModel.RunningDockItems.Count > 0)
@@ -736,6 +808,8 @@ public sealed class CompositionDockHost : IDisposable
         {
             await _viewModel.OpenDockItemCommand.ExecuteAsync(target.Item);
             _homeMode = false;
+            EnsureDockLayerOrder();
+            ScheduleDockLayerRepair();
         }
     }
 
@@ -778,6 +852,8 @@ public sealed class CompositionDockHost : IDisposable
 
         _pressedTarget = target;
         _pressedVisualId = target.VisualId;
+        _mouseDownPoint = point;
+        _dragStarted = false;
         _pressAnimationStartedAt = DateTime.UtcNow;
         RedrawIconOverlay();
         _ = SetCapture(inputHwnd);
@@ -795,6 +871,14 @@ public sealed class CompositionDockHost : IDisposable
 
     private void CompletePress(Windows.Foundation.Point point)
     {
+        if (_dragStarted)
+        {
+            _pressedTarget = null;
+            _dragStarted = false;
+            _ = ReleaseCapture();
+            return;
+        }
+
         var target = _hitTargets.FirstOrDefault(candidate => candidate.Bounds.Contains(point));
         var pressedTarget = _pressedTarget;
         _pressedTarget = null;
@@ -826,6 +910,46 @@ public sealed class CompositionDockHost : IDisposable
         RedrawIconOverlay();
     }
 
+    private void TryStartDockItemDrag(Windows.Foundation.Point point, nuint wParam)
+    {
+        if (_pressedTarget is not { IsHome: false, Item: not null } pressedTarget || _dragStarted || (wParam & MK_LBUTTON) == 0)
+        {
+            return;
+        }
+
+        var dx = Math.Abs(point.X - _mouseDownPoint.X);
+        var dy = Math.Abs(point.Y - _mouseDownPoint.Y);
+        if (dx < GetSystemMetrics(SM_CXDRAG) && dy < GetSystemMetrics(SM_CYDRAG))
+        {
+            return;
+        }
+
+        _dragStarted = true;
+        _pressedVisualId = null;
+        _pressAnimationTimer?.Stop();
+        RedrawIconOverlay();
+        _ = ReleaseCapture();
+
+        try
+        {
+            var dataObject = new TextDataObject($"coredesk-dock-app:{pressedTarget.Item.App.Id}");
+            var dropSource = new DockDropSource();
+            _ = DoDragDrop(dataObject, dropSource, DROPEFFECT_MOVE, out _);
+        }
+        catch (Exception exception)
+        {
+            App.Services.Diagnostics.Error(exception, $"Dock drag failed for app '{pressedTarget.Item.App.Id}'.");
+        }
+        finally
+        {
+            _dragStarted = false;
+            _pressedTarget = null;
+            _pressedVisualId = null;
+            RedrawIconOverlay();
+            EnsureDockLayerOrder();
+        }
+    }
+
     private void RedrawIconOverlay()
     {
         if (_iconHwnd == 0 || _width <= 0 || _height <= 0)
@@ -836,6 +960,246 @@ public sealed class CompositionDockHost : IDisposable
         var metrics = GetMetrics();
         var dockRect = new Windows.Foundation.Rect(metrics.SideShadow, metrics.TopShadow, _width - (metrics.SideShadow * 2), metrics.DockHeight);
         RenderIconOverlay(metrics, dockRect);
+    }
+
+    private void RegisterDockDropTarget()
+    {
+        if (_iconHwnd == 0 || _dropTarget is not null)
+        {
+            return;
+        }
+
+        var oleResult = OleInitialize(0);
+        _oleInitialized = oleResult >= 0 || oleResult == S_FALSE;
+        if (oleResult < 0 && oleResult != S_FALSE)
+        {
+            App.Services.Diagnostics.Info($"Dock OLE initialization failed: 0x{oleResult:X8}.");
+            return;
+        }
+
+        _dropTarget = new DockDropTarget(this);
+        var registerResult = RegisterDragDrop(_iconHwnd, _dropTarget);
+        if (registerResult < 0 && registerResult != DRAGDROP_E_ALREADYREGISTERED)
+        {
+            _dropTarget = null;
+            App.Services.Diagnostics.Info($"Dock drag/drop registration failed: 0x{registerResult:X8}.");
+        }
+    }
+
+    private void RevokeDockDropTarget()
+    {
+        if (_dropTarget is null || _iconHwnd == 0)
+        {
+            _dropTarget = null;
+            return;
+        }
+
+        _ = RevokeDragDrop(_iconHwnd);
+        _dropTarget = null;
+    }
+
+    private bool PreviewDockDrop(IDataObject dataObject, NativePoint screenPoint)
+    {
+        if (!TryGetDraggedAppId(dataObject, out _))
+        {
+            SetDockDropVisual(false, -1);
+            return false;
+        }
+
+        SetDockDropVisual(true, GetDockTargetIndex(ScreenToDockPoint(screenPoint)));
+        ShowDockAnimated();
+        return true;
+    }
+
+    private bool UpdateDockDrop(NativePoint screenPoint)
+    {
+        if (!_isDragHoveringDock)
+        {
+            return false;
+        }
+
+        SetDockDropVisual(true, GetDockTargetIndex(ScreenToDockPoint(screenPoint)));
+        return true;
+    }
+
+    private async void DropDockData(IDataObject dataObject, NativePoint screenPoint)
+    {
+        if (!TryGetDraggedAppId(dataObject, out var appId))
+        {
+            SetDockDropVisual(false, -1);
+            return;
+        }
+
+        var targetIndex = GetDockTargetIndex(ScreenToDockPoint(screenPoint));
+        SetDockDropVisual(false, -1);
+        try
+        {
+            await _viewModel.MoveDockItemAsync(appId, targetIndex);
+            ScheduleVisualRefresh(force: true);
+            EnsureDockLayerOrder();
+        }
+        catch (Exception exception)
+        {
+            App.Services.Diagnostics.Error(exception, $"Dock drop failed for app '{appId}'.");
+        }
+    }
+
+    private void SetDockDropVisual(bool isHovering, int targetIndex)
+    {
+        var nextTargetProgress = isHovering ? 1f : 0f;
+        var changed = _isDragHoveringDock != isHovering || _dropTargetIndex != targetIndex || Math.Abs(_dropSlotTargetProgress - nextTargetProgress) > 0.001f;
+        _isDragHoveringDock = isHovering || _dropSlotProgress > 0.001f;
+        if (targetIndex >= 0)
+        {
+            _dropTargetIndex = targetIndex;
+        }
+
+        _dropSlotTargetProgress = nextTargetProgress;
+        if (changed)
+        {
+            PositionWindow();
+            RebuildVisualTree(force: true);
+        }
+
+        StartDropSlotAnimation();
+    }
+
+    private void StartDropSlotAnimation()
+    {
+        if (_dropAnimationTimer is null)
+        {
+            _dropAnimationTimer = App.DispatcherQueue.CreateTimer();
+            _dropAnimationTimer.Interval = TimeSpan.FromMilliseconds(15);
+            _dropAnimationTimer.IsRepeating = true;
+            _dropAnimationTimer.Tick += (_, _) => StepDropSlotAnimation();
+        }
+
+        _dropAnimationTimer.Start();
+    }
+
+    private void StepDropSlotAnimation()
+    {
+        var delta = _dropSlotTargetProgress - _dropSlotProgress;
+        if (Math.Abs(delta) <= 0.025f)
+        {
+            _dropSlotProgress = _dropSlotTargetProgress;
+            if (_dropSlotProgress <= 0.001f)
+            {
+                _isDragHoveringDock = false;
+                _dropTargetIndex = -1;
+                _dropAnimationTimer?.Stop();
+            }
+        }
+        else
+        {
+            _dropSlotProgress += delta * 0.32f;
+        }
+
+        PositionWindow();
+        RebuildVisualTree(force: true);
+    }
+
+    private Windows.Foundation.Point ScreenToDockPoint(NativePoint screenPoint)
+    {
+        var point = screenPoint;
+        _ = ScreenToClient(_iconHwnd, ref point);
+        return new Windows.Foundation.Point(point.X, point.Y);
+    }
+
+    private int GetDockTargetIndex(Windows.Foundation.Point point)
+    {
+        var metrics = GetMetrics();
+        var contentWidth = GetDockContentWidth(metrics);
+        var x = ((_width - contentWidth) / 2f) + metrics.IconSlot + metrics.ItemGap;
+        var pinnedCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8);
+
+        for (var index = 0; index <= pinnedCount; index++)
+        {
+            if (metrics.DropSlotExtent > 0 && _dropTargetIndex == index)
+            {
+                if (point.X < x + metrics.DropSlotExtent)
+                {
+                    return index;
+                }
+
+                x += metrics.DropSlotExtent;
+            }
+
+            if (index == pinnedCount)
+            {
+                break;
+            }
+
+            if (point.X < x + (metrics.IconSlot / 2f))
+            {
+                return index;
+            }
+
+            x += metrics.IconSlot + metrics.ItemGap;
+        }
+
+        return pinnedCount;
+    }
+
+    private static bool TryGetDraggedAppId(IDataObject dataObject, out string appId)
+    {
+        appId = string.Empty;
+        if (!TryReadTextData(dataObject, out var text))
+        {
+            return false;
+        }
+
+        const string appPrefix = "coredesk-app:";
+        const string dockAppPrefix = "coredesk-dock-app:";
+        if (text.StartsWith(appPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            appId = text[appPrefix.Length..].Trim();
+        }
+        else if (text.StartsWith(dockAppPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            appId = text[dockAppPrefix.Length..].Trim();
+        }
+
+        return !string.IsNullOrWhiteSpace(appId);
+    }
+
+    private static bool TryReadTextData(IDataObject dataObject, out string text)
+    {
+        text = string.Empty;
+        var format = CreateUnicodeTextFormat();
+        if (dataObject.QueryGetData(ref format) != S_OK)
+        {
+            return false;
+        }
+
+        dataObject.GetData(ref format, out var medium);
+        try
+        {
+            if (medium.tymed != TYMED.TYMED_HGLOBAL || medium.unionmember == 0)
+            {
+                return false;
+            }
+
+            var locked = GlobalLock(medium.unionmember);
+            if (locked == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                text = Marshal.PtrToStringUni(locked) ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(text);
+            }
+            finally
+            {
+                _ = GlobalUnlock(medium.unionmember);
+            }
+        }
+        finally
+        {
+            ReleaseStgMedium(ref medium);
+        }
     }
 
     private static string GetSlotVisualId(int index)
@@ -945,6 +1309,7 @@ public sealed class CompositionDockHost : IDisposable
             _animationTimer?.Stop();
             _isAnimating = false;
             SetDockWindowPosition(_animationTargetTop);
+            EnsureDockLayerOrder();
             return;
         }
 
@@ -965,6 +1330,42 @@ public sealed class CompositionDockHost : IDisposable
         {
             SetWindowPos(_iconHwnd, 0, _left, _top, _width, _height, moveFlags);
         }
+    }
+
+    private void EnsureDockLayerOrder()
+    {
+        if (_hwnd != 0)
+        {
+            SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+
+        if (_iconHwnd != 0)
+        {
+            SetWindowPos(_iconHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
+    private void ScheduleDockLayerRepair()
+    {
+        if (_layerRepairTimer is null)
+        {
+            _layerRepairTimer = App.DispatcherQueue.CreateTimer();
+            _layerRepairTimer.Interval = TimeSpan.FromMilliseconds(180);
+            _layerRepairTimer.IsRepeating = true;
+            _layerRepairTimer.Tick += (_, _) =>
+            {
+                EnsureDockLayerOrder();
+                _layerRepairTicksRemaining--;
+                if (_layerRepairTicksRemaining <= 0)
+                {
+                    _layerRepairTimer.Stop();
+                }
+            };
+        }
+
+        _layerRepairTicksRemaining = 4;
+        _layerRepairTimer.Stop();
+        _layerRepairTimer.Start();
     }
 
     private void MinimizeApplicationWindows()
@@ -1144,7 +1545,19 @@ public sealed class CompositionDockHost : IDisposable
 
                 break;
             case WM_MOUSEMOVE:
+                TryStartDockItemDrag(GetPointFromLParam(lParam), wParam);
+                if (_isAutoHidden)
+                {
+                    ShowDockAnimated();
+                }
+
+                break;
             case WM_POINTERUPDATE:
+                if (TryGetPointerPoint(wParam, out var updatePoint))
+                {
+                    TryStartDockItemDrag(updatePoint, (nuint)MK_LBUTTON);
+                }
+
                 if (_isAutoHidden)
                 {
                     ShowDockAnimated();
@@ -1202,7 +1615,19 @@ public sealed class CompositionDockHost : IDisposable
 
                 break;
             case WM_MOUSEMOVE:
+                TryStartDockItemDrag(GetPointFromLParam(lParam), wParam);
+                if (_isAutoHidden)
+                {
+                    ShowDockAnimated();
+                }
+
+                break;
             case WM_POINTERUPDATE:
+                if (TryGetPointerPointForWindow(hwnd, wParam, out var updatePoint))
+                {
+                    TryStartDockItemDrag(updatePoint, (nuint)MK_LBUTTON);
+                }
+
                 if (_isAutoHidden)
                 {
                     ShowDockAnimated();
@@ -1263,6 +1688,8 @@ public sealed class CompositionDockHost : IDisposable
             _homeMode ? "home" : "apps",
             _width,
             _height,
+            _dropTargetIndex,
+            Math.Round(_dropSlotProgress, 2),
             string.Join(';', _viewModel.PinnedDockItems.Take(8).Select(CreateItemSignature)),
             string.Join(';', _viewModel.RunningDockItems.Take(4).Select(CreateItemSignature)));
     }
@@ -1395,6 +1822,16 @@ public sealed class CompositionDockHost : IDisposable
 
     private static int Scale(int value, float scale) => Math.Max(1, (int)Math.Round(value * scale));
 
+    private int ScaleDropSlot(int fullExtent)
+    {
+        if (_dropSlotProgress <= 0.001f)
+        {
+            return 0;
+        }
+
+        return Math.Max(1, (int)Math.Round(fullExtent * EaseOutCubic(Math.Clamp(_dropSlotProgress, 0f, 1f))));
+    }
+
     private sealed record DockMetrics(
         float DpiScale,
         int IconSlot,
@@ -1408,7 +1845,10 @@ public sealed class CompositionDockHost : IDisposable
         int WindowHeight,
         int BottomInset,
         int ScreenInset,
-        int SideShadow);
+        int SideShadow,
+        int PinnedItemCount,
+        int RunningItemCount,
+        int DropSlotExtent);
 
     private sealed record DockHitTarget(Windows.Foundation.Rect Bounds, DockItemViewModel? Item, bool IsHome, string VisualId);
 
@@ -1418,6 +1858,184 @@ public sealed class CompositionDockHost : IDisposable
     private interface ICompositorDesktopInterop
     {
         void CreateDesktopWindowTarget(nint hwndTarget, bool isTopmost, out nint target);
+    }
+
+    [ComImport]
+    [Guid("00000122-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDropTarget
+    {
+        void DragEnter(IDataObject dataObject, int keyState, NativePoint point, ref int effect);
+
+        void DragOver(int keyState, NativePoint point, ref int effect);
+
+        void DragLeave();
+
+        void Drop(IDataObject dataObject, int keyState, NativePoint point, ref int effect);
+    }
+
+    [ComImport]
+    [Guid("00000121-0000-0000-C000-000000000046")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IDropSource
+    {
+        [PreserveSig]
+        int QueryContinueDrag(bool escapePressed, int keyState);
+
+        [PreserveSig]
+        int GiveFeedback(int effect);
+    }
+
+    [ComVisible(true)]
+    private sealed class DockDropTarget(CompositionDockHost host) : IDropTarget
+    {
+        public void DragEnter(IDataObject dataObject, int keyState, NativePoint point, ref int effect)
+        {
+            effect = host.PreviewDockDrop(dataObject, point) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
+        }
+
+        public void DragOver(int keyState, NativePoint point, ref int effect)
+        {
+            effect = host.UpdateDockDrop(point) ? DROPEFFECT_MOVE : DROPEFFECT_NONE;
+        }
+
+        public void DragLeave()
+        {
+            host.SetDockDropVisual(false, -1);
+        }
+
+        public void Drop(IDataObject dataObject, int keyState, NativePoint point, ref int effect)
+        {
+            effect = DROPEFFECT_NONE;
+            if (host.PreviewDockDrop(dataObject, point))
+            {
+                host.DropDockData(dataObject, point);
+                effect = DROPEFFECT_MOVE;
+            }
+        }
+    }
+
+    [ComVisible(true)]
+    private sealed class DockDropSource : IDropSource
+    {
+        public int QueryContinueDrag(bool escapePressed, int keyState)
+        {
+            if (escapePressed)
+            {
+                return DRAGDROP_S_CANCEL;
+            }
+
+            return (keyState & MK_LBUTTON) == 0 ? DRAGDROP_S_DROP : S_OK;
+        }
+
+        public int GiveFeedback(int effect)
+        {
+            return DRAGDROP_S_USEDEFAULTCURSORS;
+        }
+    }
+
+    [ComVisible(true)]
+    private sealed class TextDataObject(string text) : IDataObject
+    {
+        public void GetData(ref FORMATETC format, out STGMEDIUM medium)
+        {
+            if (!IsUnicodeTextFormat(ref format))
+            {
+                Marshal.ThrowExceptionForHR(DV_E_FORMATETC);
+            }
+
+            var bytes = Encoding.Unicode.GetBytes(text + '\0');
+            var handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, (nuint)bytes.Length);
+            if (handle == 0)
+            {
+                Marshal.ThrowExceptionForHR(E_OUTOFMEMORY);
+            }
+
+            var locked = GlobalLock(handle);
+            if (locked == 0)
+            {
+                _ = GlobalFree(handle);
+                Marshal.ThrowExceptionForHR(E_OUTOFMEMORY);
+            }
+
+            try
+            {
+                Marshal.Copy(bytes, 0, locked, bytes.Length);
+            }
+            finally
+            {
+                _ = GlobalUnlock(handle);
+            }
+
+            medium = new STGMEDIUM
+            {
+                tymed = TYMED.TYMED_HGLOBAL,
+                unionmember = handle,
+                pUnkForRelease = null
+            };
+        }
+
+        public void GetDataHere(ref FORMATETC format, ref STGMEDIUM medium)
+        {
+            Marshal.ThrowExceptionForHR(E_NOTIMPL);
+        }
+
+        public int QueryGetData(ref FORMATETC format)
+        {
+            return IsUnicodeTextFormat(ref format) ? S_OK : DV_E_FORMATETC;
+        }
+
+        public int GetCanonicalFormatEtc(ref FORMATETC formatIn, out FORMATETC formatOut)
+        {
+            formatOut = formatIn;
+            return DATA_S_SAMEFORMATETC;
+        }
+
+        public void SetData(ref FORMATETC formatIn, ref STGMEDIUM medium, bool release)
+        {
+            Marshal.ThrowExceptionForHR(E_NOTIMPL);
+        }
+
+        public IEnumFORMATETC EnumFormatEtc(DATADIR direction)
+        {
+            Marshal.ThrowExceptionForHR(E_NOTIMPL);
+            return null!;
+        }
+
+        public int DAdvise(ref FORMATETC format, ADVF advf, IAdviseSink adviseSink, out int connection)
+        {
+            connection = 0;
+            return OLE_E_ADVISENOTSUPPORTED;
+        }
+
+        public void DUnadvise(int connection)
+        {
+            Marshal.ThrowExceptionForHR(OLE_E_ADVISENOTSUPPORTED);
+        }
+
+        public int EnumDAdvise(out IEnumSTATDATA enumAdvise)
+        {
+            enumAdvise = null!;
+            return OLE_E_ADVISENOTSUPPORTED;
+        }
+    }
+
+    private static FORMATETC CreateUnicodeTextFormat()
+    {
+        return new FORMATETC
+        {
+            cfFormat = CF_UNICODETEXT,
+            ptd = 0,
+            dwAspect = DVASPECT.DVASPECT_CONTENT,
+            lindex = -1,
+            tymed = TYMED.TYMED_HGLOBAL
+        };
+    }
+
+    private static bool IsUnicodeTextFormat(ref FORMATETC format)
+    {
+        return format.cfFormat == CF_UNICODETEXT
+            && (format.tymed & TYMED.TYMED_HGLOBAL) != 0;
     }
 
     private delegate nint WndProc(nint hwnd, uint message, nuint wParam, nint lParam);
@@ -1524,6 +2142,8 @@ public sealed class CompositionDockHost : IDisposable
     private const int SW_FORCEMINIMIZE = 11;
     private const int SM_CXSCREEN = 0;
     private const int SM_CYSCREEN = 1;
+    private const int SM_CXDRAG = 68;
+    private const int SM_CYDRAG = 69;
     private const uint WM_DESTROY = 0x0002;
     private const uint WM_DISPLAYCHANGE = 0x007E;
     private const uint WM_NCHITTEST = 0x0084;
@@ -1539,6 +2159,23 @@ public sealed class CompositionDockHost : IDisposable
     private const int PressAnimationDurationMs = 220;
     private const int DQTYPE_THREAD_CURRENT = 2;
     private const int DQTAT_COM_STA = 2;
+    private const short CF_UNICODETEXT = 13;
+    private const int MK_LBUTTON = 0x0001;
+    private const int DROPEFFECT_NONE = 0;
+    private const int DROPEFFECT_MOVE = 2;
+    private const int S_OK = 0;
+    private const int S_FALSE = 1;
+    private const int E_NOTIMPL = unchecked((int)0x80004001);
+    private const int E_OUTOFMEMORY = unchecked((int)0x8007000E);
+    private const int DV_E_FORMATETC = unchecked((int)0x80040064);
+    private const int OLE_E_ADVISENOTSUPPORTED = unchecked((int)0x80040003);
+    private const int DRAGDROP_E_ALREADYREGISTERED = unchecked((int)0x80040101);
+    private const int DRAGDROP_S_DROP = 0x00040100;
+    private const int DRAGDROP_S_CANCEL = 0x00040101;
+    private const int DRAGDROP_S_USEDEFAULTCURSORS = 0x00040102;
+    private const int DATA_S_SAMEFORMATETC = 0x00040130;
+    private const uint GMEM_MOVEABLE = 0x0002;
+    private const uint GMEM_ZEROINIT = 0x0040;
     private static readonly nint HTCLIENT = new(1);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -1636,4 +2273,34 @@ public sealed class CompositionDockHost : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern nint GetModuleHandle(string? moduleName);
+
+    [DllImport("ole32.dll")]
+    private static extern int OleInitialize(nint reserved);
+
+    [DllImport("ole32.dll")]
+    private static extern void OleUninitialize();
+
+    [DllImport("ole32.dll")]
+    private static extern int RegisterDragDrop(nint hwnd, IDropTarget dropTarget);
+
+    [DllImport("ole32.dll")]
+    private static extern int RevokeDragDrop(nint hwnd);
+
+    [DllImport("ole32.dll")]
+    private static extern int DoDragDrop(IDataObject dataObject, IDropSource dropSource, int allowedEffects, out int effect);
+
+    [DllImport("ole32.dll")]
+    private static extern void ReleaseStgMedium(ref STGMEDIUM medium);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GlobalAlloc(uint flags, nuint bytes);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GlobalLock(nint handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GlobalUnlock(nint handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GlobalFree(nint handle);
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 
@@ -14,6 +15,9 @@ public sealed class JsonConfigurationStore : IConfigurationStore
     {
         WriteIndented = true
     };
+
+    private static readonly JsonTypeInfo<CoreDeskSettings> SettingsJsonTypeInfo = CoreDeskJsonSerializerContext.Default.CoreDeskSettings;
+    private static readonly JsonTypeInfo<HomeLayout> LayoutJsonTypeInfo = CoreDeskJsonSerializerContext.Default.HomeLayout;
 
     private readonly StoreState _state;
 
@@ -86,10 +90,10 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             try
             {
                 _settings ??= await WithDiskLockAsync(
-                    () => LoadAsync(_settingsPath, new CoreDeskSettings(), cancellationToken),
+                    () => LoadAsync(_settingsPath, new CoreDeskSettings(), SettingsJsonTypeInfo, cancellationToken),
                     cancellationToken);
 
-                return Clone(_settings);
+                return Clone(_settings, SettingsJsonTypeInfo);
             }
             finally
             {
@@ -99,7 +103,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
 
         public async Task SaveSettingsAsync(CoreDeskSettings settings, CancellationToken cancellationToken)
         {
-            var snapshot = Clone(settings);
+            var snapshot = Clone(settings, SettingsJsonTypeInfo);
             await _cacheGate.WaitAsync(cancellationToken);
             try
             {
@@ -110,7 +114,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
                 _cacheGate.Release();
             }
 
-            await EnqueueWriteAsync(_settingsPath, snapshot, cancellationToken);
+            await EnqueueWriteAsync(_settingsPath, snapshot, SettingsJsonTypeInfo, cancellationToken);
         }
 
         public async Task<HomeLayout> LoadLayoutAsync(CancellationToken cancellationToken)
@@ -119,10 +123,10 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             try
             {
                 _layout ??= await WithDiskLockAsync(
-                    () => LoadAsync(_layoutPath, new HomeLayout(), cancellationToken),
+                    () => LoadAsync(_layoutPath, new HomeLayout(), LayoutJsonTypeInfo, cancellationToken),
                     cancellationToken);
 
-                return Clone(_layout);
+                return Clone(_layout, LayoutJsonTypeInfo);
             }
             finally
             {
@@ -132,7 +136,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
 
         public async Task SaveLayoutAsync(HomeLayout layout, CancellationToken cancellationToken)
         {
-            var snapshot = Clone(layout);
+            var snapshot = Clone(layout, LayoutJsonTypeInfo);
             await _cacheGate.WaitAsync(cancellationToken);
             try
             {
@@ -143,7 +147,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
                 _cacheGate.Release();
             }
 
-            await EnqueueWriteAsync(_layoutPath, snapshot, cancellationToken);
+            await EnqueueWriteAsync(_layoutPath, snapshot, LayoutJsonTypeInfo, cancellationToken);
         }
 
         public async Task ResetAsync(CancellationToken cancellationToken)
@@ -202,10 +206,10 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             }
         }
 
-        private Task EnqueueWriteAsync<T>(string path, T value, CancellationToken cancellationToken)
+        private Task EnqueueWriteAsync<T>(string path, T value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken)
         {
             return EnqueueOperationAsync(
-                () => WithDiskLockAsync(() => SaveAsync(path, value, cancellationToken), cancellationToken),
+                () => WithDiskLockAsync(() => SaveAsync(path, value, jsonTypeInfo, cancellationToken), cancellationToken),
                 cancellationToken);
         }
 
@@ -261,7 +265,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             }
         }
 
-        private static async Task<T> LoadAsync<T>(string path, T fallback, CancellationToken cancellationToken)
+        private static async Task<T> LoadAsync<T>(string path, T fallback, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken)
         {
             if (!File.Exists(path))
             {
@@ -271,7 +275,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             try
             {
                 await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return await JsonSerializer.DeserializeAsync<T>(stream, SerializerOptions, cancellationToken) ?? fallback;
+                return await JsonSerializer.DeserializeAsync(stream, jsonTypeInfo, cancellationToken) ?? fallback;
             }
             catch (JsonException)
             {
@@ -280,7 +284,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             }
         }
 
-        private static async Task SaveAsync<T>(string path, T value, CancellationToken cancellationToken)
+        private static async Task SaveAsync<T>(string path, T value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken)
         {
             if (File.Exists(path))
             {
@@ -292,7 +296,7 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             {
                 await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    await JsonSerializer.SerializeAsync(stream, value, SerializerOptions, cancellationToken);
+                    await JsonSerializer.SerializeAsync(stream, value, jsonTypeInfo, cancellationToken);
                 }
 
                 await ReplaceFileAsync(tempPath, path, cancellationToken);
@@ -377,9 +381,9 @@ public sealed class JsonConfigurationStore : IConfigurationStore
             }
         }
 
-        private static T Clone<T>(T value)
+        private static T Clone<T>(T value, JsonTypeInfo<T> jsonTypeInfo)
         {
-            return JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value, SerializerOptions), SerializerOptions)
+            return JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(value, jsonTypeInfo), jsonTypeInfo)
                 ?? throw new InvalidOperationException($"Could not clone {typeof(T).Name}.");
         }
     }

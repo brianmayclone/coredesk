@@ -46,7 +46,7 @@ public sealed partial class MainWindow : Window
 
     public void OpenControlCenter()
     {
-        _mainPage?.OpenControlCenter();
+        App.ShowControlCenterOverlay();
     }
 
     public void OpenTaskSwitcher()

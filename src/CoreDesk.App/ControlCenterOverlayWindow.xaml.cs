@@ -151,12 +151,22 @@ public sealed partial class ControlCenterOverlayWindow : Window
 
     private void OnVolumeSliderValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
+        if (!_isShown)
+        {
+            return;
+        }
+
         ViewModel.SetVolumePercent((int)Math.Round(e.NewValue));
         Bindings.Update();
     }
 
     private void OnBrightnessSliderValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
+        if (!_isShown)
+        {
+            return;
+        }
+
         ViewModel.SetBrightnessPercent((int)Math.Round(e.NewValue));
         Bindings.Update();
     }

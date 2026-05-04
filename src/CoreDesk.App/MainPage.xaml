@@ -53,48 +53,54 @@
 
             <Grid Height="0" />
 
-            <ItemsControl
-                x:Name="WidgetsStrip"
+            <Grid
                 Grid.Row="1"
                 AllowDrop="True"
                 DragOver="OnWidgetDragOver"
+                DragLeave="OnWidgetDragLeave"
                 Drop="OnWidgetDrop"
                 Margin="0,28,0,8"
-                ItemsSource="{x:Bind ViewModel.Widgets, Mode=OneWay}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="18" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="viewModels:HomeWidgetViewModel">
-                        <Border
-                            Width="380"
-                            Height="132"
-                            Padding="24,20"
-                            CanDrag="True"
-                            DragStarting="OnWidgetDragStarting"
-                            PointerPressed="OnTilePointerPressed"
-                            PointerReleased="OnTilePointerReleased"
-                            PointerExited="OnTilePointerReleased"
-                            RenderTransformOrigin="0.5,0.5"
-                            Translation="0,0,32"
-                            Background="#F1FFFFFF"
-                            BorderBrush="#72FFFFFF"
-                            BorderThickness="1"
-                            CornerRadius="20">
-                            <Border.Shadow>
-                                <ThemeShadow />
-                            </Border.Shadow>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="{x:Bind Title}" Foreground="#B0212B34" FontSize="15" FontWeight="SemiBold" />
-                                <TextBlock Text="{x:Bind PrimaryText}" Foreground="#FF111820" FontSize="30" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{x:Bind SecondaryText}" Foreground="#CC111820" FontSize="15" />
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                MinHeight="300">
+                <ItemsControl
+                    x:Name="WidgetsStrip"
+                    ItemsSource="{x:Bind ViewModel.Widgets, Mode=OneWay}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <Canvas MinHeight="300" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="viewModels:HomeWidgetViewModel">
+                            <Border
+                                Width="{x:Bind Width, Mode=OneWay}"
+                                Height="{x:Bind Height, Mode=OneWay}"
+                                Padding="24,20"
+                                CanDrag="True"
+                                DragStarting="OnWidgetDragStarting"
+                                DropCompleted="OnWidgetDragCompleted"
+                                Opacity="{x:Bind Opacity, Mode=OneWay}"
+                                PointerPressed="OnTilePointerPressed"
+                                PointerReleased="OnTilePointerReleased"
+                                PointerExited="OnTilePointerReleased"
+                                RenderTransformOrigin="0.5,0.5"
+                                Translation="0,0,32"
+                                Background="#F1FFFFFF"
+                                BorderBrush="#72FFFFFF"
+                                BorderThickness="1"
+                                CornerRadius="20">
+                                <Border.Shadow>
+                                    <ThemeShadow />
+                                </Border.Shadow>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Text="{x:Bind Title}" Foreground="#B0212B34" FontSize="15" FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind PrimaryText}" Foreground="#FF111820" FontSize="30" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind SecondaryText}" Foreground="#CC111820" FontSize="15" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
 
             <GridView
                 x:Name="HomeGrid"
@@ -127,9 +133,11 @@
                             CanDrag="True"
                             DragStarting="OnHomeTileDragStarting"
                             Spacing="10"
+                            Holding="OnHomeTileHolding"
                             PointerPressed="OnTilePointerPressed"
                             PointerReleased="OnTilePointerReleased"
                             PointerExited="OnTilePointerReleased"
+                            RightTapped="OnHomeTileRightTapped"
                             Tapped="OnHomeTileTapped"
                             RenderTransformOrigin="0.5,0.45"
                             AutomationProperties.Name="{x:Bind DisplayName, Mode=OneWay}">
@@ -784,6 +792,10 @@
                 </Grid>
             </Grid>
         </Grid>
+
+        <local:AppIconContextMenu
+            x:Name="HomeAppContextMenu"
+            ActionRequested="OnHomeAppContextMenuActionRequested" />
 
         <Grid
             x:Name="StartupErrorOverlay"
