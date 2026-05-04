@@ -252,7 +252,7 @@
             AutomationProperties.Name="CoreDesk App Drawer"
             Visibility="{Binding IsDrawerOpen, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.Background>
-                <AcrylicBrush TintColor="#111820" TintOpacity="0.78" TintLuminosityOpacity="0.68" FallbackColor="#F2111820" />
+                <AcrylicBrush TintColor="#111820" TintOpacity="0.46" TintLuminosityOpacity="0.42" FallbackColor="#AA111820" />
             </Grid.Background>
             <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}" RowSpacing="22">
                 <Grid.RowDefinitions>

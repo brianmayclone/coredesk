@@ -99,6 +99,19 @@ public sealed class CompositionDockHost : IDisposable
         }
     }
 
+    public void HideDock()
+    {
+        if (_hwnd != 0)
+        {
+            ShowWindow(_hwnd, SW_HIDE);
+        }
+
+        if (_iconHwnd != 0)
+        {
+            ShowWindow(_iconHwnd, SW_HIDE);
+        }
+    }
+
     public void Close()
     {
         if (_iconHwnd != 0)
@@ -2185,6 +2198,7 @@ public sealed class CompositionDockHost : IDisposable
     private const byte AC_SRC_OVER = 0x00;
     private const byte AC_SRC_ALPHA = 0x01;
     private const int SW_SHOWNOACTIVATE = 4;
+    private const int SW_HIDE = 0;
     private const int SW_FORCEMINIMIZE = 11;
     private const int SM_CXSCREEN = 0;
     private const int SM_CYSCREEN = 1;

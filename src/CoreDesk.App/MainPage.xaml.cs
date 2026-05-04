@@ -84,7 +84,11 @@ public sealed partial class MainPage : Page
             _lastPageIndex = ViewModel.CurrentPageIndex;
             ApplyWallpaper();
             Bindings.Update();
-            App.NotifyHomeExperienceReady(homeMode: true);
+            App.NotifyHomeExperienceReady(homeMode: !ViewModel.IsDrawerOpen && !ViewModel.IsSettingsOpen && !ViewModel.IsControlCenterOpen && !ViewModel.IsTaskSwitcherOpen && !ViewModel.IsFolderOpen);
+            if (ViewModel.IsDrawerOpen)
+            {
+                App.HideDockWhenReady();
+            }
         }
         catch (Exception exception)
         {
@@ -853,7 +857,14 @@ public sealed partial class MainPage : Page
                 && !ViewModel.IsSettingsOpen
                 && !ViewModel.IsFolderOpen;
             App.ShowStatusAndReserveWorkArea(homeMode: isHomescreenOnly);
-            App.ShowDockWhenReady(homeMode: isHomescreenOnly);
+            if (ViewModel.IsDrawerOpen)
+            {
+                App.HideDockWhenReady();
+            }
+            else
+            {
+                App.ShowDockWhenReady(homeMode: isHomescreenOnly);
+            }
         }
 
     }

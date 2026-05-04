@@ -10,6 +10,7 @@ public sealed class DefaultLayoutBuilder
         "Google Chrome",
         "Edge",
         "File Explorer",
+        "CoreDesk Settings",
         "Settings",
         "Microsoft Store",
         "Store",
@@ -50,6 +51,7 @@ public sealed class DefaultLayoutBuilder
         "Edge",
         "Browser",
         "File Explorer",
+        "CoreDesk Settings",
         "Settings",
         "Microsoft Store",
         "Store"
@@ -120,7 +122,9 @@ public sealed class DefaultLayoutBuilder
     private static bool HasUsableUserLayout(HomeLayout layout, IReadOnlyList<AppEntry> apps)
     {
         var appIds = apps.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var validTiles = layout.Pages.SelectMany(page => page.Tiles).Any(tile => appIds.Contains(tile.AppId));
+        var validTiles = layout.Pages
+            .SelectMany(page => page.Tiles)
+            .Any(tile => !string.Equals(tile.AppId, "coredesk-settings", StringComparison.OrdinalIgnoreCase) && appIds.Contains(tile.AppId));
         var validDockItems = layout.DockAppIds.Any(appIds.Contains);
         var validFolders = layout.Folders.Any(folder => folder.AppIds.Any(appIds.Contains));
         return validTiles || validDockItems || validFolders;

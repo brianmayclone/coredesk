@@ -148,6 +148,16 @@ public partial class App : Application
         DockWindow?.ShowDock(homeMode);
     }
 
+    public static void HideDockWhenReady()
+    {
+        if (!_homeExperienceReady)
+        {
+            return;
+        }
+
+        DockWindow?.HideDock();
+    }
+
     public static void ShowStatusAndReserveWorkArea(bool homeMode)
     {
         if (StatusWindow is null)
@@ -273,7 +283,14 @@ public partial class App : Application
         Window.Activate();
         mainWindow.UseFullScreenShell();
         ShowStatusAndReserveWorkArea(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
-        ShowDockWhenReady(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
+        if (openDrawer)
+        {
+            HideDockWhenReady();
+        }
+        else
+        {
+            ShowDockWhenReady(homeMode: !openSettings && !openControlCenter && !openTaskSwitcher);
+        }
         if (!openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher)
         {
             mainWindow.ShowHome();

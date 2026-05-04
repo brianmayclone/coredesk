@@ -36,7 +36,8 @@ public sealed partial class ShellViewModel(
     private CancellationTokenSource? _appDiscoveryCancellation;
     private TaskScheduler? _uiTaskScheduler;
     private int _appDiscoveryGeneration;
-    private bool _allowDefaultLayoutRebuildDuringDiscovery;
+    private const string CoreDeskSettingsAppId = "coredesk-settings";
+    private static readonly AppEntry CoreDeskSettingsApp = new(CoreDeskSettingsAppId, "CoreDesk Settings", AppKind.SystemAction);
 
     public ObservableCollection<AppEntry> HomeApps { get; } = [];
 
@@ -195,7 +196,6 @@ public sealed partial class ShellViewModel(
         ApplyAdaptiveSizing();
 
         _layout = await configurationStore.LoadLayoutAsync(cancellationToken);
-        _allowDefaultLayoutRebuildDuringDiscovery = !HasLayoutReferences(_layout);
         CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, PageCount - 1);
         CurrentMode = shellModeService.CurrentMode;
         RefreshStatus();
@@ -256,12 +256,14 @@ public sealed partial class ShellViewModel(
     {
         IsDrawerOpen = true;
         IsSettingsOpen = false;
+        _ = RefreshRunningAppsAsync();
     }
 
     [RelayCommand]
     private void CloseDrawer()
     {
         IsDrawerOpen = false;
+        _ = RefreshRunningAppsAsync();
     }
 
     [RelayCommand]
@@ -269,6 +271,7 @@ public sealed partial class ShellViewModel(
     {
         IsSettingsOpen = true;
         IsDrawerOpen = false;
+        _ = RefreshRunningAppsAsync();
     }
 
     [RelayCommand]
@@ -466,6 +469,13 @@ public sealed partial class ShellViewModel(
 
         try
         {
+            if (app.Id.Equals(CoreDeskSettingsAppId, StringComparison.OrdinalIgnoreCase))
+            {
+                OpenSettings();
+                diagnostics.Info("Opened CoreDesk settings from desktop shortcut.");
+                return;
+            }
+
             await appLauncher.LaunchAsync(app);
             diagnostics.Info($"Launched app: {app.Id}");
             await RefreshRunningAppsAsync();
@@ -532,21 +542,25 @@ public sealed partial class ShellViewModel(
             {
                 var token = refreshCancellation.Token;
                 var batch = new List<AppEntry>();
+                var discoveredThisRun = new List<AppEntry>();
                 var lastPublish = DateTime.UtcNow;
 
                 await foreach (var app in appDiscovery.DiscoverAppsIncrementalAsync(token))
                 {
                     token.ThrowIfCancellationRequested();
                     batch.Add(app);
+                    discoveredThisRun.Add(app);
 
                     if (batch.Count >= 10 || DateTime.UtcNow - lastPublish >= TimeSpan.FromMilliseconds(180))
                     {
-                        await PublishDiscoveredAppsAsync(batch, isComplete: false, generation, token);
+                        await PublishDiscoveredAppsAsync(batch, isComplete: false, replaceAll: false, generation, token);
                         lastPublish = DateTime.UtcNow;
                     }
                 }
 
-                await PublishDiscoveredAppsAsync(batch, isComplete: true, generation, token);
+                batch.Clear();
+                batch.AddRange(discoveredThisRun);
+                await PublishDiscoveredAppsAsync(batch, isComplete: true, replaceAll: true, generation, token);
             }, CancellationToken.None);
         }
         catch (OperationCanceledException)
@@ -567,7 +581,7 @@ public sealed partial class ShellViewModel(
         }
     }
 
-    private Task PublishDiscoveredAppsAsync(List<AppEntry> batch, bool isComplete, int generation, CancellationToken cancellationToken)
+    private Task PublishDiscoveredAppsAsync(List<AppEntry> batch, bool isComplete, bool replaceAll, int generation, CancellationToken cancellationToken)
     {
         if (batch.Count == 0 && !isComplete)
         {
@@ -576,10 +590,10 @@ public sealed partial class ShellViewModel(
 
         var apps = batch.ToList();
         batch.Clear();
-        return RunOnUiAsync(() => ApplyDiscoveredAppsAsync(apps, isComplete, generation, cancellationToken), cancellationToken);
+        return RunOnUiAsync(() => ApplyDiscoveredAppsAsync(apps, isComplete, replaceAll, generation, cancellationToken), cancellationToken);
     }
 
-    private async Task ApplyDiscoveredAppsAsync(IReadOnlyList<AppEntry> discovered, bool isComplete, int generation, CancellationToken cancellationToken)
+    private async Task ApplyDiscoveredAppsAsync(IReadOnlyList<AppEntry> discovered, bool isComplete, bool replaceAll, int generation, CancellationToken cancellationToken)
     {
         if (generation != _appDiscoveryGeneration)
         {
@@ -587,7 +601,11 @@ public sealed partial class ShellViewModel(
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (discovered.Count > 0)
+        if (replaceAll)
+        {
+            _allApps = [.. WithCoreDeskInternalApps(discovered).OrderBy(app => app.DisplayName)];
+        }
+        else if (discovered.Count > 0)
         {
             var appsById = _allApps.ToDictionary(app => app.Id, StringComparer.OrdinalIgnoreCase);
             foreach (var app in discovered)
@@ -595,12 +613,19 @@ public sealed partial class ShellViewModel(
                 appsById[app.Id] = app;
             }
 
+            foreach (var app in WithCoreDeskInternalApps([]))
+            {
+                appsById[app.Id] = app;
+            }
+
             _allApps = [.. appsById.Values.OrderBy(app => app.DisplayName)];
         }
 
-        if (_allowDefaultLayoutRebuildDuringDiscovery || isComplete)
+        EnsureCoreDeskSettingsShortcut();
+        if (isComplete)
         {
             _defaultLayoutBuilder.EnsureDefaultLayout(_layout, _allApps);
+            EnsureCoreDeskSettingsShortcut();
         }
 
         CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, PageCount - 1);
@@ -612,7 +637,6 @@ public sealed partial class ShellViewModel(
         if (isComplete)
         {
             await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
-            _allowDefaultLayoutRebuildDuringDiscovery = false;
             diagnostics.Info($"App index refreshed in background. Apps: {_allApps.Count}");
         }
     }
@@ -868,35 +892,13 @@ public sealed partial class ShellViewModel(
 
     private async Task RefreshAppCollectionsAsync(CancellationToken cancellationToken = default)
     {
-        HomeApps.Clear();
-        HomeFolders.Clear();
-        HomeTiles.Clear();
-        Widgets.Clear();
-        DockApps.Clear();
-        PinnedDockItems.Clear();
-        RunningDockItems.Clear();
-        TaskSwitcherItems.Clear();
-
-        foreach (var widget in _layout.Widgets)
-        {
-            Widgets.Add(widget.Kind.Equals("clock", StringComparison.OrdinalIgnoreCase)
-                ? new HomeWidgetViewModel(widget, DateTime.Now.ToString("HH:mm"), DateTime.Now.ToString("dddd, MMM d"))
-                : new HomeWidgetViewModel(widget, BatteryLabel, $"{NetworkLabel} · {KeyboardLabel}"));
-        }
-
-        foreach (var folder in _layout.Folders)
-        {
-            var folderTile = new FolderTileViewModel(folder, folder.AppIds.Count, AppsByIds(folder.AppIds).Take(4).ToList());
-            HomeFolders.Add(folderTile);
-        }
-
+        EnsureCoreDeskSettingsShortcut();
+        ReplaceCollection(Widgets, _layout.Widgets.Select(widget => widget.Kind.Equals("clock", StringComparison.OrdinalIgnoreCase)
+            ? new HomeWidgetViewModel(widget, DateTime.Now.ToString("HH:mm"), DateTime.Now.ToString("dddd, MMM d"))
+            : new HomeWidgetViewModel(widget, BatteryLabel, $"{NetworkLabel} · {KeyboardLabel}")));
+        ReplaceCollection(HomeFolders, _layout.Folders.Select(folder => new FolderTileViewModel(folder, folder.AppIds.Count, AppsByIds(folder.AppIds).Take(4).ToList())));
         RefreshHomeTiles();
-
-        foreach (var app in AppsByIds(_layout.DockAppIds).Take(8))
-        {
-            DockApps.Add(app);
-        }
-
+        ReplaceCollection(DockApps, AppsByIds(_layout.DockAppIds).Take(8));
         RefreshDrawer();
         await RefreshRunningAppsAsync(cancellationToken);
     }
@@ -937,9 +939,6 @@ public sealed partial class ShellViewModel(
 
     private void RefreshHomeTiles()
     {
-        HomeApps.Clear();
-        HomeTiles.Clear();
-
         var appById = _allApps.ToDictionary(app => app.Id, StringComparer.OrdinalIgnoreCase);
         var folderById = HomeFolders.ToDictionary(folder => folder.Folder.Id, StringComparer.OrdinalIgnoreCase);
         var page = _layout.Pages
@@ -949,23 +948,30 @@ public sealed partial class ShellViewModel(
 
         if (page is null)
         {
+            ReplaceCollection(HomeApps, []);
+            ReplaceCollection(HomeTiles, []);
             return;
         }
 
+        var homeApps = new List<AppEntry>();
+        var homeTiles = new List<HomeTileViewModel>();
         foreach (var tile in page.Tiles.OrderBy(tile => tile.Row).ThenBy(tile => tile.Column))
         {
             if (!string.IsNullOrWhiteSpace(tile.AppId) && appById.TryGetValue(tile.AppId, out var app))
             {
-                HomeApps.Add(app);
-                HomeTiles.Add(new HomeTileViewModel(app, null));
+                homeApps.Add(app);
+                homeTiles.Add(new HomeTileViewModel(app, null));
                 continue;
             }
 
             if (!string.IsNullOrWhiteSpace(tile.FolderId) && folderById.TryGetValue(tile.FolderId, out var folder))
             {
-                HomeTiles.Add(new HomeTileViewModel(null, folder));
+                homeTiles.Add(new HomeTileViewModel(null, folder));
             }
         }
+
+        ReplaceCollection(HomeApps, homeApps);
+        ReplaceCollection(HomeTiles, homeTiles);
     }
 
     private HomePage GetOrCreatePage(int pageIndex)
@@ -1062,16 +1068,12 @@ public sealed partial class ShellViewModel(
 
     private void RefreshDrawer()
     {
-        DrawerApps.Clear();
         var query = SearchText.Trim();
         var apps = string.IsNullOrWhiteSpace(query)
             ? _allApps
             : appSearch.Search(_allApps, query);
 
-        foreach (var app in apps)
-        {
-            DrawerApps.Add(app);
-        }
+        ReplaceCollection(DrawerApps, apps);
     }
 
     private async Task RefreshRunningAppsAsync(CancellationToken cancellationToken = default)
@@ -1083,20 +1085,20 @@ public sealed partial class ShellViewModel(
         var runningIds = DockRunningAppMatcher.MatchRunningAppIds(runningApps, _allApps, pinnedApps);
         var pinnedIds = pinnedApps.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        PinnedDockItems.Clear();
-        RunningDockItems.Clear();
-        TaskSwitcherItems.Clear();
-        DockApps.Clear();
+        var pinnedItems = new List<DockItemViewModel>();
+        var runningItems = new List<DockItemViewModel>();
+        var taskSwitcherItems = new List<DockItemViewModel>();
+        var dockApps = new List<AppEntry>();
 
         foreach (var app in pinnedApps)
         {
             var running = runningApps.FirstOrDefault(candidate => DockRunningAppMatcher.IsRunningMatch(app, candidate));
             var isRunning = running is not null || runningIds.Contains(app.Id);
-            PinnedDockItems.Add(CreateDockItem(app, isRunning, running));
-            DockApps.Add(app);
+            pinnedItems.Add(CreateDockItem(app, isRunning, running));
+            dockApps.Add(app);
             if (isRunning)
             {
-                TaskSwitcherItems.Add(CreateDockItem(app, true, running));
+                taskSwitcherItems.Add(CreateDockItem(app, true, running));
             }
         }
 
@@ -1104,9 +1106,14 @@ public sealed partial class ShellViewModel(
         {
             var running = runningApps.FirstOrDefault(candidate => DockRunningAppMatcher.IsRunningMatch(app, candidate));
             var item = CreateDockItem(app, true, running);
-            RunningDockItems.Add(item);
-            TaskSwitcherItems.Add(item);
+            runningItems.Add(item);
+            taskSwitcherItems.Add(item);
         }
+
+        ReplaceCollection(PinnedDockItems, pinnedItems);
+        ReplaceCollection(RunningDockItems, IsDrawerOpen ? [] : runningItems);
+        ReplaceCollection(TaskSwitcherItems, taskSwitcherItems);
+        ReplaceCollection(DockApps, dockApps);
     }
 
     private static DockItemViewModel CreateDockItem(AppEntry app, bool isRunning, RunningAppEntry? running)
@@ -1124,6 +1131,86 @@ public sealed partial class ShellViewModel(
                 yield return app;
             }
         }
+    }
+
+    private static IEnumerable<AppEntry> WithCoreDeskInternalApps(IEnumerable<AppEntry> apps)
+    {
+        var hasCoreDeskSettings = false;
+        foreach (var app in apps)
+        {
+            if (app.Id.Equals(CoreDeskSettingsAppId, StringComparison.OrdinalIgnoreCase))
+            {
+                hasCoreDeskSettings = true;
+            }
+
+            yield return app;
+        }
+
+        if (!hasCoreDeskSettings)
+        {
+            yield return CoreDeskSettingsApp;
+        }
+    }
+
+    private void EnsureCoreDeskSettingsShortcut()
+    {
+        if (!_allApps.Any(app => app.Id.Equals(CoreDeskSettingsAppId, StringComparison.OrdinalIgnoreCase)))
+        {
+            _allApps = [.. _allApps, CoreDeskSettingsApp];
+        }
+
+        if (_layout.Pages.SelectMany(page => page.Tiles).Any(tile => string.Equals(tile.AppId, CoreDeskSettingsAppId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        var page = GetOrCreatePage(0);
+        page.Tiles.Insert(0, new HomeTile { AppId = CoreDeskSettingsAppId });
+        NormalizePageTiles(page);
+    }
+
+    private static void ReplaceCollection<T>(ObservableCollection<T> collection, IEnumerable<T> items)
+    {
+        var desired = items.ToList();
+        for (var index = 0; index < desired.Count; index++)
+        {
+            if (index < collection.Count && EqualityComparer<T>.Default.Equals(collection[index], desired[index]))
+            {
+                continue;
+            }
+
+            var existingIndex = IndexOf(collection, desired[index], index + 1);
+            if (existingIndex >= 0)
+            {
+                collection.Move(existingIndex, index);
+            }
+            else if (index < collection.Count)
+            {
+                collection[index] = desired[index];
+            }
+            else
+            {
+                collection.Add(desired[index]);
+            }
+        }
+
+        while (collection.Count > desired.Count)
+        {
+            collection.RemoveAt(collection.Count - 1);
+        }
+    }
+
+    private static int IndexOf<T>(ObservableCollection<T> collection, T item, int startIndex)
+    {
+        for (var index = startIndex; index < collection.Count; index++)
+        {
+            if (EqualityComparer<T>.Default.Equals(collection[index], item))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     private void TrimDock()
@@ -1162,10 +1249,4 @@ public sealed partial class ShellViewModel(
         }
     }
 
-    private static bool HasLayoutReferences(HomeLayout layout)
-    {
-        return layout.Pages.SelectMany(page => page.Tiles).Any(tile => !string.IsNullOrWhiteSpace(tile.AppId) || !string.IsNullOrWhiteSpace(tile.FolderId))
-            || layout.DockAppIds.Count > 0
-            || layout.Folders.Any(folder => folder.AppIds.Count > 0);
-    }
 }
