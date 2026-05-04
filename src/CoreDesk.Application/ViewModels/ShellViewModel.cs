@@ -362,7 +362,6 @@ public sealed partial class ShellViewModel(
         await appLauncher.LaunchAsync(app);
         diagnostics.Info($"Launched app: {app.Id}");
         await RefreshRunningAppsAsync();
-        shellModeService.EnterDesktopMode();
     }
 
     [RelayCommand]
@@ -376,7 +375,6 @@ public sealed partial class ShellViewModel(
         if (item.IsRunning && await runningAppService.TryActivateAsync(item.App))
         {
             diagnostics.Info($"Activated running app: {item.App.Id}");
-            shellModeService.EnterDesktopMode();
             await RefreshRunningAppsAsync();
             return;
         }

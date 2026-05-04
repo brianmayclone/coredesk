@@ -4,7 +4,12 @@
       "commandName": "MsixPackage"
     },
     "CoreDesk.App (Unpackaged)": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "commandLineArgs": "--diagnostics --language en"
+    },
+    "CoreDesk.App Overlay Safe Mode": {
+      "commandName": "Project",
+      "commandLineArgs": "--diagnostics --safe-mode --language en"
     }
   }
 }

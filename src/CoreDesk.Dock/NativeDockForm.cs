@@ -1,8 +1,8 @@
 using CoreDesk.Abstractions.Services;
 using CoreDesk.Application.ViewModels;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -13,10 +13,8 @@ public sealed class NativeDockForm : Form
     private readonly ShellViewModel _viewModel;
     private readonly IDiagnosticsService _diagnostics;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
-    private readonly System.Windows.Forms.Timer _foregroundTimer = new();
     private readonly Dictionary<string, Image> _iconCache = [];
     private readonly List<(Rectangle Bounds, DockItemViewModel Item)> _hitTargets = [];
-    private bool _raised = true;
 
     public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics)
     {
@@ -27,20 +25,16 @@ public sealed class NativeDockForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        DoubleBuffered = true;
         BackColor = Color.Black;
-        Opacity = 0.96;
+        ShowIcon = false;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
         InitializeDock();
         ConfigureWindow();
 
-        _refreshTimer.Interval = 2500;
+        _refreshTimer.Interval = 1200;
         _refreshTimer.Tick += (_, _) => RefreshDock();
         _refreshTimer.Start();
-
-        _foregroundTimer.Interval = 500;
-        _foregroundTimer.Tick += (_, _) => KeepOverlayState();
-        _foregroundTimer.Start();
     }
 
     protected override bool ShowWithoutActivation => true;
@@ -50,7 +44,7 @@ public sealed class NativeDockForm : Form
         get
         {
             var parameters = base.CreateParams;
-            parameters.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+            parameters.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED;
             return parameters;
         }
     }
@@ -64,9 +58,9 @@ public sealed class NativeDockForm : Form
     private void ConfigureWindow()
     {
         PositionDock();
-        EnableAcrylicBlur(Handle);
-        ApplyRoundedRegion();
-        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
+        ConfigureDwmBackdrop(Handle);
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        RenderLayeredDock();
     }
 
     private void RefreshDock()
@@ -75,7 +69,7 @@ public sealed class NativeDockForm : Form
         {
             _viewModel.Tick();
             PositionDock();
-            Invalidate();
+            RenderLayeredDock();
         }
         catch (Exception exception)
         {
@@ -83,49 +77,25 @@ public sealed class NativeDockForm : Form
         }
     }
 
-    private void KeepOverlayState()
-    {
-        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
-        if (IsForegroundLargeNonDockWindow())
-        {
-            if (_raised)
-            {
-                _raised = false;
-                Top = Screen.PrimaryScreen!.Bounds.Bottom - 12;
-            }
-
-            return;
-        }
-
-        if (!_raised)
-        {
-            _raised = true;
-            PositionDock();
-        }
-    }
-
     private void PositionDock()
     {
         var screen = Screen.PrimaryScreen!.Bounds;
-        var itemCount = Math.Max(1, _viewModel.PinnedDockItems.Count)
-            + _viewModel.RunningDockItems.Count
-            + 1;
-        var desiredWidth = Math.Clamp(42 + (itemCount * 64) + Math.Max(0, itemCount - 1) * 10, 560, Math.Min(1320, screen.Width - 220));
-        var desiredHeight = 108;
+        var itemCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 1, 10)
+            + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 5);
+        var desiredWidth = Math.Clamp(28 + (itemCount * 48) + (Math.Max(0, itemCount - 1) * 12), 340, Math.Min(820, screen.Width - 240));
+        var desiredHeight = 92;
         Bounds = new Rectangle(
             screen.Left + ((screen.Width - desiredWidth) / 2),
-            screen.Bottom - desiredHeight - 30,
+            screen.Bottom - desiredHeight - 24,
             desiredWidth,
             desiredHeight);
-        ApplyRoundedRegion();
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
     }
 
     protected override void OnMouseEnter(EventArgs e)
     {
         base.OnMouseEnter(e);
-        _raised = true;
-        PositionDock();
-        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
@@ -150,56 +120,77 @@ public sealed class NativeDockForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        var graphics = e.Graphics;
+    }
+
+    private void RenderLayeredDock()
+    {
+        if (Width <= 0 || Height <= 0)
+        {
+            return;
+        }
+
+        using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
         graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         graphics.Clear(Color.Transparent);
         _hitTargets.Clear();
 
-        var surface = new Rectangle(0, 0, Width - 1, Height - 1);
-        using var path = RoundedRect(surface, 42);
-        using var shadow = new SolidBrush(Color.FromArgb(56, 0, 0, 0));
-        using var glass = new LinearGradientBrush(surface, Color.FromArgb(206, 255, 255, 255), Color.FromArgb(88, 122, 190, 230), 16f);
-        using var stroke = new Pen(Color.FromArgb(180, 255, 255, 255), 1.3f);
+        var dockSurface = new Rectangle(7, 9, Width - 14, 70);
+        using var path = RoundedRect(dockSurface, 18);
+        DrawSoftShadow(graphics, dockSurface);
 
-        graphics.FillPath(shadow, RoundedRect(new Rectangle(0, 5, Width - 1, Height - 1), 42));
+        using var glass = new LinearGradientBrush(
+            dockSurface,
+            Color.FromArgb(188, 88, 26, 45),
+            Color.FromArgb(168, 55, 15, 32),
+            90f);
+        using var sheen = new LinearGradientBrush(
+            dockSurface,
+            Color.FromArgb(78, 255, 255, 255),
+            Color.FromArgb(12, 255, 255, 255),
+            90f);
+        using var stroke = new Pen(Color.FromArgb(82, 255, 255, 255), 1f);
+
         graphics.FillPath(glass, path);
+        graphics.FillPath(sheen, path);
         graphics.DrawPath(stroke, path);
-        using (var highlight = new Pen(Color.FromArgb(210, 255, 255, 255), 1f))
+        using (var highlight = new Pen(Color.FromArgb(96, 255, 255, 255), 1f))
         {
-            graphics.DrawLine(highlight, 36, 12, Width - 36, 12);
+            graphics.DrawLine(highlight, dockSurface.Left + 18, dockSurface.Top + 1, dockSurface.Right - 18, dockSurface.Top + 1);
         }
 
-        var x = 22;
-        var y = 18;
+        var itemCount = Math.Clamp(_viewModel.PinnedDockItems.Count, 1, 10)
+            + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 5);
+        var contentWidth = (itemCount * 48) + (Math.Max(0, itemCount - 1) * 12);
+        var x = (Width - contentWidth) / 2;
+        var y = dockSurface.Top + 10;
         DrawItems(graphics, _viewModel.PinnedDockItems, ref x, y, pinned: true);
-        using (var dividerPen = new Pen(Color.FromArgb(140, 255, 255, 255), 1f))
+
+        if (_viewModel.RunningDockItems.Count > 0)
         {
-            graphics.DrawLine(dividerPen, x + 5, 24, x + 5, Height - 30);
+            x += 12;
         }
 
-        x += 20;
         DrawItems(graphics, _viewModel.RunningDockItems, ref x, y, pinned: false);
-
-        using var homeBrush = new SolidBrush(Color.FromArgb(120, 255, 255, 255));
-        graphics.FillRoundedRectangle(homeBrush, new Rectangle((Width - 66) / 2, Height - 14, 66, 4), 2);
+        ApplyLayeredBitmap(bitmap);
     }
 
     private void DrawItems(Graphics graphics, IEnumerable<DockItemViewModel> items, ref int x, int y, bool pinned)
     {
-        foreach (var item in items.Take(pinned ? 10 : 7))
+        foreach (var item in items.Take(pinned ? 10 : 5))
         {
-            var bounds = new Rectangle(x, y, 60, 70);
+            var bounds = new Rectangle(x, y, 48, 54);
             _hitTargets.Add((bounds, item));
-            DrawIcon(graphics, item, new Rectangle(x + 3, y, 54, 54));
+            DrawIcon(graphics, item, new Rectangle(x + 2, y, 44, 44));
             if (item.IsRunning || !pinned)
             {
                 using var indicator = new SolidBrush(Color.FromArgb(255, 10, 132, 255));
-                graphics.FillRoundedRectangle(indicator, new Rectangle(x + 21, y + 62, 18, 3), 2);
+                graphics.FillRoundedRectangle(indicator, new Rectangle(x + 20, y + 49, 8, 3), 2);
             }
 
-            x += 74;
+            x += 60;
         }
     }
 
@@ -242,35 +233,17 @@ public sealed class NativeDockForm : Form
         }
     }
 
-    private void ApplyRoundedRegion()
+    private static void DrawSoftShadow(Graphics graphics, Rectangle surface)
     {
-        Region?.Dispose();
-        Region = new Region(RoundedRect(new Rectangle(0, 0, Width, Height), 42));
-    }
-
-    private bool IsForegroundLargeNonDockWindow()
-    {
-        var foreground = NativeMethods.GetForegroundWindow();
-        if (foreground == IntPtr.Zero || foreground == Handle)
+        for (var index = 0; index < 5; index++)
         {
-            return false;
+            var alpha = 34 - (index * 6);
+            var shadowRect = Rectangle.Inflate(surface, index * 2, index);
+            shadowRect.Offset(0, 5 + index);
+            using var shadow = new SolidBrush(Color.FromArgb(Math.Max(6, alpha), 0, 0, 0));
+            using var shadowPath = RoundedRect(shadowRect, 18 + index);
+            graphics.FillPath(shadow, shadowPath);
         }
-
-        _ = NativeMethods.GetWindowThreadProcessId(foreground, out var processId);
-        if (processId == Environment.ProcessId)
-        {
-            return false;
-        }
-
-        if (!NativeMethods.GetWindowRect(foreground, out var rect))
-        {
-            return false;
-        }
-
-        var screen = Screen.PrimaryScreen!.Bounds;
-        var width = rect.Right - rect.Left;
-        var height = rect.Bottom - rect.Top;
-        return width >= screen.Width * 0.72 && height >= screen.Height * 0.72;
     }
 
     private static GraphicsPath RoundedRect(Rectangle rectangle, int radius)
@@ -285,13 +258,69 @@ public sealed class NativeDockForm : Form
         return path;
     }
 
-    private static void EnableAcrylicBlur(IntPtr handle)
+    private static void ConfigureDwmBackdrop(IntPtr handle)
+    {
+        var useHostBackdrop = 1;
+        _ = NativeMethods.DwmSetWindowAttribute(handle, DWMWA_USE_HOSTBACKDROPBRUSH, ref useHostBackdrop, sizeof(int));
+
+        var backdropType = DWMSBT_TRANSIENTWINDOW;
+        _ = NativeMethods.DwmSetWindowAttribute(handle, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropType, sizeof(int));
+
+        var cornerPreference = DWMWCP_ROUND;
+        _ = NativeMethods.DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPreference, sizeof(int));
+
+        var borderColor = DWMWA_COLOR_NONE;
+        _ = NativeMethods.DwmSetWindowAttribute(handle, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
+
+        EnableAcrylicAccent(handle);
+    }
+
+    private void ApplyLayeredBitmap(Bitmap bitmap)
+    {
+        var screenDc = NativeMethods.GetDC(IntPtr.Zero);
+        var memoryDc = NativeMethods.CreateCompatibleDC(screenDc);
+        var bitmapHandle = bitmap.GetHbitmap(Color.FromArgb(0));
+        var oldBitmap = NativeMethods.SelectObject(memoryDc, bitmapHandle);
+
+        try
+        {
+            var size = new NativeSize(bitmap.Width, bitmap.Height);
+            var source = new NativePoint(0, 0);
+            var topPosition = new NativePoint(Left, Top);
+            var blend = new BlendFunction
+            {
+                BlendOp = AC_SRC_OVER,
+                SourceConstantAlpha = 255,
+                AlphaFormat = AC_SRC_ALPHA
+            };
+
+            _ = NativeMethods.UpdateLayeredWindow(
+                Handle,
+                screenDc,
+                ref topPosition,
+                ref size,
+                memoryDc,
+                ref source,
+                0,
+                ref blend,
+                ULW_ALPHA);
+        }
+        finally
+        {
+            _ = NativeMethods.SelectObject(memoryDc, oldBitmap);
+            _ = NativeMethods.DeleteObject(bitmapHandle);
+            _ = NativeMethods.DeleteDC(memoryDc);
+            _ = NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+        }
+    }
+
+    private static void EnableAcrylicAccent(IntPtr handle)
     {
         var accent = new AccentPolicy
         {
             AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND,
             AccentFlags = 0x20,
-            GradientColor = unchecked((int)0x88FFFFFF)
+            GradientColor = unchecked((int)0x66FFFFFF)
         };
 
         var accentSize = Marshal.SizeOf<AccentPolicy>();
@@ -318,7 +347,6 @@ public sealed class NativeDockForm : Form
         if (disposing)
         {
             _refreshTimer.Dispose();
-            _foregroundTimer.Dispose();
             foreach (var image in _iconCache.Values)
             {
                 image.Dispose();
@@ -331,9 +359,22 @@ public sealed class NativeDockForm : Form
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int WS_EX_LAYERED = 0x00080000;
     private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const int DWMWA_USE_HOSTBACKDROPBRUSH = 17;
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWA_BORDER_COLOR = 34;
+    private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    private const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
+    private const int DWMWCP_ROUND = 2;
+    private const int DWMSBT_TRANSIENTWINDOW = 3;
     private const int WCA_ACCENT_POLICY = 19;
     private const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
+    private const int ULW_ALPHA = 0x00000002;
+    private const byte AC_SRC_OVER = 0x00;
+    private const byte AC_SRC_ALPHA = 0x01;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AccentPolicy
@@ -352,6 +393,29 @@ public sealed class NativeDockForm : Form
         public int SizeOfData;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint(int x, int y)
+    {
+        public int X = x;
+        public int Y = y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeSize(int width, int height)
+    {
+        public int Width = width;
+        public int Height = height;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    private struct BlendFunction
+    {
+        public byte BlendOp;
+        public byte BlendFlags;
+        public byte SourceConstantAlpha;
+        public byte AlphaFormat;
+    }
+
     private static class NativeMethods
     {
         [DllImport("user32.dll")]
@@ -368,6 +432,39 @@ public sealed class NativeDockForm : Form
 
         [DllImport("user32.dll")]
         public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetDC(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
+
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr CreateCompatibleDC(IntPtr hDc);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool DeleteDC(IntPtr hDc);
+
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr SelectObject(IntPtr hDc, IntPtr hObject);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool DeleteObject(IntPtr hObject);
+
+        [DllImport("user32.dll")]
+        public static extern bool UpdateLayeredWindow(
+            IntPtr hWnd,
+            IntPtr hdcDst,
+            ref NativePoint pptDst,
+            ref NativeSize psize,
+            IntPtr hdcSrc,
+            ref NativePoint pptSrc,
+            int crKey,
+            ref BlendFunction pblend,
+            int dwFlags);
     }
 
     [StructLayout(LayoutKind.Sequential)]

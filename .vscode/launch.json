@@ -2,11 +2,25 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "CoreDesk App (x64)",
+            "name": "CoreDesk Shell Replacement (x64)",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build CoreDesk App x64",
-            "program": "${workspaceFolder}/src/CoreDesk.App/bin/x64/Debug/net9.0-windows10.0.26100.0/CoreDesk.App.exe",
+            "preLaunchTask": "build CoreDesk Shell x64",
+            "program": "${workspaceFolder}/src/CoreDesk.App/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/CoreDesk.App.exe",
+            "args": [
+                "--diagnostics",
+                "--language",
+                "en"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false
+        },
+        {
+            "name": "CoreDesk Overlay Safe Mode (x64)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build CoreDesk Shell x64",
+            "program": "${workspaceFolder}/src/CoreDesk.App/bin/x64/Debug/net9.0-windows10.0.26100.0/win-x64/CoreDesk.App.exe",
             "args": [
                 "--diagnostics",
                 "--safe-mode",

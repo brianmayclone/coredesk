@@ -15,7 +15,7 @@
         AutomationProperties.Name="CoreDesk Homescreen"
         Background="Transparent"
         SizeChanged="OnRootSizeChanged">
-        <Grid Visibility="{Binding IsTouchMode, Converter={StaticResource BoolToVisibilityConverter}}">
+        <Grid>
             <Grid.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                     <GradientStop Color="#20394F" Offset="0" />
@@ -28,10 +28,9 @@
         <Image
             x:Name="WallpaperImage"
             Stretch="UniformToFill"
-            Opacity="0.94"
-            Visibility="{Binding IsTouchMode, Converter={StaticResource BoolToVisibilityConverter}}" />
+            Opacity="0.94" />
 
-        <Grid Visibility="{Binding IsTouchMode, Converter={StaticResource BoolToVisibilityConverter}}">
+        <Grid>
             <Grid.Background>
                 <RadialGradientBrush Center="0.58,0.35" RadiusX="0.92" RadiusY="0.92">
                     <GradientStop Color="#44FFFFFF" Offset="0" />
@@ -41,9 +40,9 @@
             </Grid.Background>
         </Grid>
 
-        <Border Background="#26000000" Visibility="{Binding IsTouchMode, Converter={StaticResource BoolToVisibilityConverter}}" />
+        <Border Background="#26000000" />
 
-        <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}" Visibility="{Binding IsTouchMode, Converter={StaticResource BoolToVisibilityConverter}}">
+        <Grid Padding="{Binding ShellPadding, Converter={StaticResource DoubleToUniformThicknessConverter}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />

@@ -10,6 +10,8 @@ public sealed class LaunchOptions
 
     public bool MockHardware { get; init; }
 
+    public bool OverlayMode { get; init; }
+
     public bool ReplaceExplorerForSession { get; init; }
 
     public string? LanguageOverride { get; init; }
@@ -30,13 +32,22 @@ public sealed class LaunchOptions
             }
         }
 
+        var safeMode = tokens.Contains("--safe-mode", StringComparer.OrdinalIgnoreCase);
+        var overlayMode = tokens.Contains("--overlay-mode", StringComparer.OrdinalIgnoreCase);
+        var replaceExplorer = !safeMode && !overlayMode;
+        if (tokens.Contains("--replace-explorer-for-session", StringComparer.OrdinalIgnoreCase))
+        {
+            replaceExplorer = true;
+        }
+
         return new LaunchOptions
         {
-            SafeMode = tokens.Contains("--safe-mode", StringComparer.OrdinalIgnoreCase),
+            SafeMode = safeMode,
             ResetConfig = tokens.Contains("--reset-config", StringComparer.OrdinalIgnoreCase),
             Diagnostics = tokens.Contains("--diagnostics", StringComparer.OrdinalIgnoreCase),
             MockHardware = tokens.Contains("--mock-hardware", StringComparer.OrdinalIgnoreCase),
-            ReplaceExplorerForSession = tokens.Contains("--replace-explorer-for-session", StringComparer.OrdinalIgnoreCase),
+            OverlayMode = overlayMode,
+            ReplaceExplorerForSession = replaceExplorer,
             LanguageOverride = language
         };
     }

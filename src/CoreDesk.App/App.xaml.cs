@@ -7,7 +7,7 @@ public partial class App : Application
 {
     public static Window Window { get; private set; } = null!;
 
-    public static DockOverlayWindow? DockWindow { get; private set; }
+    public static NativeDockHost? DockWindow { get; private set; }
 
     public static StatusOverlayWindow? StatusWindow { get; private set; }
 
@@ -17,6 +17,8 @@ public partial class App : Application
         WinRT.Interop.WindowNative.GetWindowHandle(Window);
 
     public static AppComposition Services { get; private set; } = null!;
+
+    private static DispatcherTimer? _desktopLayerEnforcer;
 
     public App()
     {
@@ -49,11 +51,11 @@ public partial class App : Application
             }
 
             Services.SystemIntegration.Initialize();
-            Services.SystemIntegration.SetTaskbarVisible(false);
+            ApplyShellTaskbarPolicy();
             Services.SystemIntegration.CommandRequested += OnSystemCommandRequested;
             Window = new MainWindow();
             Window.Closed += (_, _) => RestoreSystemShell();
-            DockWindow = new DockOverlayWindow();
+            DockWindow = new NativeDockHost();
             StatusWindow = new StatusOverlayWindow();
             Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
@@ -67,8 +69,14 @@ public partial class App : Application
             Window.Activate();
             StatusWindow.ShowStatus(homeMode: true);
             DockWindow.ShowDock(homeMode: true);
+            if (Window is MainWindow desktopWindow)
+            {
+                desktopWindow.ConfigureAsDesktopLayer();
+                KeepHomescreenBehindWindows();
+            }
+
             SignalShellReadyIfNeeded();
-            Services.SystemIntegration.SetTaskbarVisible(false);
+            ApplyShellTaskbarPolicy();
         }
         catch (Exception exception)
         {
@@ -133,6 +141,7 @@ public partial class App : Application
                     break;
                 case SystemIntegrationCommand.EnterSafeMode:
                     Services.SystemIntegration.SetTaskbarVisible(true);
+                    Services.ShellReplacement.RestoreExplorerForSession();
                     Window.Activate();
                     break;
                 case SystemIntegrationCommand.Exit:
@@ -184,7 +193,14 @@ public partial class App : Application
         {
             if (mode == ShellMode.Desktop)
             {
-                Window.AppWindow.Show(false);
+                Window.AppWindow.Show(true);
+                if (Window is MainWindow desktopWindow)
+                {
+                    desktopWindow.UseFullScreenShell();
+                    desktopWindow.ConfigureAsDesktopLayer();
+                    KeepHomescreenBehindWindows();
+                }
+
                 StatusWindow?.ShowStatus(homeMode: false);
                 DockWindow?.ShowDock(homeMode: false);
                 Services.SystemIntegration.SetTaskbarVisible(false);
@@ -198,6 +214,7 @@ public partial class App : Application
             if (Window is MainWindow mainWindow)
             {
                 mainWindow.UseFullScreenShell();
+                mainWindow.BringShellForward();
             }
         });
     }
@@ -225,6 +242,42 @@ public partial class App : Application
         {
             Services.ShellReplacement.SignalShellReady();
         }
+    }
+
+    private static void ApplyShellTaskbarPolicy()
+    {
+        Services.SystemIntegration.SetTaskbarVisible(Services.Options.SafeMode || Services.Options.OverlayMode);
+    }
+
+    private static void KeepHomescreenBehindWindows()
+    {
+        if (Window is not MainWindow mainWindow)
+        {
+            return;
+        }
+
+        mainWindow.SendToDesktopLayer();
+        var remainingTicks = 10;
+        _desktopLayerEnforcer?.Stop();
+        _desktopLayerEnforcer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(120)
+        };
+        _desktopLayerEnforcer.Tick += (_, _) =>
+        {
+            if (Window is MainWindow window)
+            {
+                window.SendToDesktopLayer();
+            }
+
+            remainingTicks--;
+            if (remainingTicks <= 0)
+            {
+                _desktopLayerEnforcer?.Stop();
+                _desktopLayerEnforcer = null;
+            }
+        };
+        _desktopLayerEnforcer.Start();
     }
 
     private static void WriteFallbackCrashLog(Exception exception)

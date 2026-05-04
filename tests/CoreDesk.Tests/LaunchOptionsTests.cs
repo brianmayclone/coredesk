@@ -16,4 +16,22 @@ public sealed class LaunchOptionsTests
         Assert.Equal("de", options.LanguageOverride);
         Assert.False(string.IsNullOrWhiteSpace(options.RunId));
     }
+
+    [Fact]
+    public void Parse_DefaultsToSessionShellReplacement()
+    {
+        var options = LaunchOptions.Parse("");
+
+        Assert.True(options.ReplaceExplorerForSession);
+        Assert.False(options.OverlayMode);
+    }
+
+    [Fact]
+    public void Parse_OverlayModeDisablesSessionShellReplacement()
+    {
+        var options = LaunchOptions.Parse("--overlay-mode");
+
+        Assert.False(options.ReplaceExplorerForSession);
+        Assert.True(options.OverlayMode);
+    }
 }

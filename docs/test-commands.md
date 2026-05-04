@@ -16,7 +16,7 @@ Use these commands from the repository root.
 
 ## UI Tests With Screenshots
 
-UI tests are opt-in because they start the desktop app. Visual screenshot runs use diagnostics safe mode so real wallpaper and icons are visible while taskbar hiding and hardware auto-switching stay disabled.
+UI tests are opt-in because they start the desktop app. Visual screenshot runs use diagnostics safe mode so real wallpaper and icons are visible while shell replacement, taskbar hiding, and hardware auto-switching stay disabled.
 
 ```powershell
 $env:COREDESK_RUN_UI_TESTS='1'
@@ -29,13 +29,15 @@ Use `--mock-hardware` only for deterministic mock-service checks, not for visual
 
 ## Session Shell Replacement Test
 
-This mode is closer to Cairo-style shell replacement testing without permanently changing `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell`. It stops Explorer shell surfaces for the current run and restarts Explorer when CoreDesk exits.
+This is the normal launch mode. It is closer to Cairo-style shell replacement testing without permanently changing `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell`. It stops Explorer shell surfaces for the current run and restarts Explorer when CoreDesk exits.
 
 ```powershell
-dotnet run --project src\CoreDesk.App\CoreDesk.App.csproj -p:Platform=x64 -- --diagnostics --replace-explorer-for-session --language en
+dotnet run --project src\CoreDesk.App\CoreDesk.App.csproj -p:Platform=x64 -- --diagnostics --language en
 ```
 
 Keep a terminal open before running this mode so you have a recovery path if the UI crashes.
+
+For overlay-only UI development, add `--overlay-mode` or `--safe-mode`.
 
 Screenshots are written to:
 

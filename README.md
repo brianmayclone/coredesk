@@ -2,7 +2,7 @@
 
 CoreDesk is a WinUI 3 touch shell for Windows 11 tablets, convertibles, and Surface-class devices. It gives Windows a calm, mobile-style home screen with apps, widgets, a dock, an app drawer, settings, status surfaces, and safe paths back to the normal desktop.
 
-CoreDesk currently supports a safe overlay mode and an opt-in session shell replacement test mode. The session replacement mode stops Explorer for the current run without writing the Winlogon shell registry value, then restarts Explorer when CoreDesk exits.
+CoreDesk starts as a session shell replacement by default. It stops Explorer for the current run without writing the Winlogon shell registry value, then restarts Explorer when CoreDesk exits. Safe mode and overlay mode are explicit recovery/development paths.
 
 ![CoreDesk homescreen with dock](assets/screenshots/coredesk-homescreen.png)
 
@@ -75,7 +75,7 @@ Run the app from Visual Studio or with `dotnet run`:
 dotnet run --project src\CoreDesk.App\CoreDesk.App.csproj -p:Platform=x64 -- --diagnostics --safe-mode --language en
 ```
 
-For normal local development, `--safe-mode` is recommended because it keeps taskbar hiding and hardware auto-switching disabled while you work.
+For overlay-style local development, use `--safe-mode` or `--overlay-mode`. A normal launch without those flags takes over the current shell session.
 
 ## Launch Options
 
@@ -84,10 +84,11 @@ CoreDesk supports a small set of development and diagnostics flags:
 | Option | Purpose |
 | --- | --- |
 | `--safe-mode` | Uses safe defaults, keeps the taskbar visible, and disables hardware auto-switching. |
+| `--overlay-mode` | Runs above Explorer for UI development instead of taking over the current shell session. |
 | `--reset-config` | Resets persisted CoreDesk settings and layout. |
 | `--diagnostics` | Writes detailed diagnostics logs and exposes predictable test state. |
 | `--mock-hardware` | Uses mock hardware/system/app services for deterministic tests. |
-| `--replace-explorer-for-session` | Testing mode that stops Explorer's shell surfaces for the current CoreDesk run and restores Explorer on exit. |
+| `--replace-explorer-for-session` | Forces session shell replacement even when another safety/development flag would otherwise avoid it. |
 | `--language en` / `--language de` | Overrides the UI language for the run. |
 
 ## Build And Test
@@ -145,8 +146,8 @@ This structure is deliberate: the core shell behavior can be tested without dire
 
 CoreDesk is designed to keep explicit recovery paths while shell replacement work matures:
 
-- Explorer is left alone by default.
-- `--replace-explorer-for-session` is opt-in and restores Explorer on exit.
+- Explorer is replaced for the current session by default and restored on exit.
+- `--safe-mode` and `--overlay-mode` leave Explorer running for recovery and UI development.
 - `Ctrl+Alt+Del` remains untouched.
 - `Esc` restores the taskbar and closes the overlay path.
 - Safe mode keeps destructive or disruptive integrations disabled.

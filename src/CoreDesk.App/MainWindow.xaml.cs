@@ -75,6 +75,29 @@ public sealed partial class MainWindow : Window
         HideDwmChrome(WinRT.Interop.WindowNative.GetWindowHandle(this));
     }
 
+    public void ConfigureAsDesktopLayer()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
+        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+        SendToDesktopLayer();
+    }
+
+    public void SendToDesktopLayer()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        SetWindowPos(handle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
+    public void BringShellForward()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
+        SetWindowLongPtr(handle, GWL_EXSTYLE, style & ~WS_EX_NOACTIVATE);
+        SetWindowPos(handle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        Activate();
+    }
+
     private static void HideDwmChrome(nint handle)
     {
         var cornerPreference = DWMWCP_DONOTROUND;
@@ -94,6 +117,15 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
 
+    private static readonly nint HWND_BOTTOM = new(1);
+    private static readonly nint HWND_TOP = new(0);
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_SHOWWINDOW = 0x0040;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWA_BORDER_COLOR = 34;
     private const int DWMWCP_DONOTROUND = 1;
@@ -101,4 +133,13 @@ public sealed partial class MainWindow : Window
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint hWnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern nint SetWindowLongPtr(nint hWnd, int index, nint newLong);
 }

@@ -48,7 +48,7 @@ public sealed partial class StatusOverlayWindow : Window
 
         PositionWindow();
         ApplyForegroundStyle();
-        Activate();
+        AppWindow.Show(true);
         KeepTopMost();
     }
 
@@ -70,7 +70,7 @@ public sealed partial class StatusOverlayWindow : Window
 
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
-        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT);
+        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
         PositionWindow();
         AppWindow.Hide();
     }
@@ -145,6 +145,7 @@ public sealed partial class StatusOverlayWindow : Window
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
     private const int WS_EX_TRANSPARENT = 0x00000020;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;

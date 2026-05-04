@@ -1,6 +1,6 @@
 # CoreDesk Architecture
 
-CoreDesk is a WinUI 3 touch shell for Windows 11 tablets. It can run as a safe overlay above Explorer, and it has an opt-in session shell replacement test mode that stops Explorer for the current run without changing the user's Winlogon shell registry value.
+CoreDesk is a WinUI 3 touch shell for Windows 11 tablets. It starts as a session shell replacement by default: Explorer is stopped for the current run without changing the user's Winlogon shell registry value, then restored when CoreDesk exits. Safe mode and overlay mode keep Explorer running for recovery and UI development.
 
 ## Projects
 
@@ -18,7 +18,7 @@ CoreDesk is a WinUI 3 touch shell for Windows 11 tablets. It can run as a safe o
 - Languages: English and German from day one.
 - Persisted storage: JSON first, SQLite optional later.
 - Taskbar: actively hidden in overlay mode and restored in desktop/recovery paths.
-- Session shell replacement: `--replace-explorer-for-session` stops Explorer shell surfaces for the current run, signals shell readiness when available, and restarts Explorer when CoreDesk exits.
+- Session shell replacement: the default launch stops Explorer shell surfaces for the current run, signals shell readiness when available, and restarts Explorer when CoreDesk exits.
 - Tray: required MVP surface, with richer commands to follow.
 - Safety: `Esc` restores the taskbar and closes the overlay.
 

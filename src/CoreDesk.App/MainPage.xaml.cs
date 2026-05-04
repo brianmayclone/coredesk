@@ -140,18 +140,7 @@ public sealed partial class MainPage : Page
     {
         if (e.PropertyName is nameof(ViewModel.IsControlCenterOpen) or nameof(ViewModel.IsTaskSwitcherOpen) or nameof(ViewModel.IsDrawerOpen) or nameof(ViewModel.IsSettingsOpen))
         {
-            if (ViewModel.IsControlCenterOpen || ViewModel.IsTaskSwitcherOpen || ViewModel.IsDrawerOpen || ViewModel.IsSettingsOpen)
-            {
-                App.DockWindow?.HideDock();
-            }
-            else if (ViewModel.IsDesktopMode)
-            {
-                App.DockWindow?.ShowDock();
-            }
-            else
-            {
-                App.DockWindow?.ShowDock(homeMode: true);
-            }
+            App.DockWindow?.ShowDock(homeMode: !ViewModel.IsDesktopMode);
         }
 
     }
