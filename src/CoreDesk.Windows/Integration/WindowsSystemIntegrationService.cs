@@ -15,6 +15,11 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private const int SPI_SETWORKAREA = 0x002F;
     private const int SPI_GETWORKAREA = 0x0030;
     private const int SPIF_SENDCHANGE = 0x0002;
+    private const uint ABM_NEW = 0x00000000;
+    private const uint ABM_REMOVE = 0x00000001;
+    private const uint ABM_QUERYPOS = 0x00000002;
+    private const uint ABM_SETPOS = 0x00000003;
+    private const uint ABE_TOP = 1;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
 
@@ -22,6 +27,9 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private readonly IDiagnosticsService? diagnostics;
     private bool _disposed;
     private bool _taskbarSuppressed;
+    private bool _appBarRegistered;
+    private IntPtr _appBarHandle;
+    private int _appBarMessageId;
     private NativeRect? _originalWorkArea;
     private readonly object _taskbarLock = new();
     private readonly Dictionary<IntPtr, NativeRect> _taskbarPositions = [];
@@ -74,6 +82,11 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     public void ReserveTopWorkArea(IntPtr ownerWindowHandle, int reservedPixels)
     {
         var topInset = Math.Max(0, reservedPixels);
+        if (ownerWindowHandle != IntPtr.Zero && RegisterTopAppBar(ownerWindowHandle, topInset))
+        {
+            return;
+        }
+
         if (!SystemParametersInfoGetWorkArea(SPI_GETWORKAREA, 0, out var currentWorkArea, 0))
         {
             diagnostics?.Info("Failed to read current Windows work area.");
@@ -101,6 +114,8 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
 
     public void RestoreWorkArea()
     {
+        RemoveTopAppBar();
+
         if (_originalWorkArea is not { } original)
         {
             return;
@@ -116,6 +131,90 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         {
             diagnostics?.Info("Failed to restore Windows work area.");
         }
+    }
+
+    private bool RegisterTopAppBar(IntPtr ownerWindowHandle, int reservedPixels)
+    {
+        if (_appBarRegistered && _appBarHandle == ownerWindowHandle)
+        {
+            return SetTopAppBarPosition(ownerWindowHandle, reservedPixels);
+        }
+
+        RemoveTopAppBar();
+        _appBarMessageId = RegisterWindowMessage("CoreDesk_AppBarMessage");
+        var data = new AppBarData
+        {
+            cbSize = Marshal.SizeOf<AppBarData>(),
+            hWnd = ownerWindowHandle,
+            uCallbackMessage = _appBarMessageId
+        };
+
+        if (SHAppBarMessage(ABM_NEW, ref data) == UIntPtr.Zero)
+        {
+            diagnostics?.Info("Failed to register CoreDesk status appbar.");
+            return false;
+        }
+
+        _appBarRegistered = true;
+        _appBarHandle = ownerWindowHandle;
+        diagnostics?.Info("Registered CoreDesk status appbar.");
+        return SetTopAppBarPosition(ownerWindowHandle, reservedPixels);
+    }
+
+    private bool SetTopAppBarPosition(IntPtr ownerWindowHandle, int reservedPixels)
+    {
+        var data = new AppBarData
+        {
+            cbSize = Marshal.SizeOf<AppBarData>(),
+            hWnd = ownerWindowHandle,
+            uEdge = ABE_TOP,
+            rc = new NativeRect
+            {
+                Left = 0,
+                Top = 0,
+                Right = GetSystemMetrics(SM_CXSCREEN),
+                Bottom = reservedPixels
+            }
+        };
+
+        _ = SHAppBarMessage(ABM_QUERYPOS, ref data);
+        data.rc.Bottom = data.rc.Top + reservedPixels;
+        var result = SHAppBarMessage(ABM_SETPOS, ref data);
+        if (result == UIntPtr.Zero)
+        {
+            diagnostics?.Info("Failed to set CoreDesk status appbar position.");
+            return false;
+        }
+
+        _ = SetWindowPos(
+            ownerWindowHandle,
+            IntPtr.Zero,
+            data.rc.Left,
+            data.rc.Top,
+            data.rc.Right - data.rc.Left,
+            data.rc.Bottom - data.rc.Top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        diagnostics?.Info($"Reserved appbar work area: {data.rc.Left},{data.rc.Top},{data.rc.Right},{data.rc.Bottom}.");
+        return true;
+    }
+
+    private void RemoveTopAppBar()
+    {
+        if (!_appBarRegistered || _appBarHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var data = new AppBarData
+        {
+            cbSize = Marshal.SizeOf<AppBarData>(),
+            hWnd = _appBarHandle
+        };
+        _ = SHAppBarMessage(ABM_REMOVE, ref data);
+        diagnostics?.Info("Removed CoreDesk status appbar.");
+        _appBarRegistered = false;
+        _appBarHandle = IntPtr.Zero;
+        _appBarMessageId = 0;
     }
 
     public void ShowTrayIcon()
@@ -268,7 +367,24 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int RegisterWindowMessage(string lpString);
+
+    [DllImport("shell32.dll")]
+    private static extern UIntPtr SHAppBarMessage(uint dwMessage, ref AppBarData pData);
+
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct AppBarData
+    {
+        public int cbSize;
+        public IntPtr hWnd;
+        public int uCallbackMessage;
+        public uint uEdge;
+        public NativeRect rc;
+        public IntPtr lParam;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect

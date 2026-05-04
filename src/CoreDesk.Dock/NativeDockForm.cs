@@ -2,7 +2,6 @@ using CoreDesk.Abstractions.Services;
 using CoreDesk.Application.ViewModels;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -25,7 +24,7 @@ public sealed class NativeDockForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        BackColor = Color.Black;
+        BackColor = Color.FromArgb(24, 24, 24);
         ShowIcon = false;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
@@ -44,7 +43,7 @@ public sealed class NativeDockForm : Form
         get
         {
             var parameters = base.CreateParams;
-            parameters.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_LAYERED;
+            parameters.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE;
             return parameters;
         }
     }
@@ -60,7 +59,7 @@ public sealed class NativeDockForm : Form
         PositionDock();
         ConfigureDwmBackdrop(Handle);
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
-        RenderLayeredDock();
+        Invalidate();
     }
 
     private void RefreshDock()
@@ -69,7 +68,8 @@ public sealed class NativeDockForm : Form
         {
             _viewModel.Tick();
             PositionDock();
-            RenderLayeredDock();
+            NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+            Invalidate();
         }
         catch (Exception exception)
         {
@@ -89,6 +89,8 @@ public sealed class NativeDockForm : Form
             screen.Bottom - desiredHeight - 24,
             desiredWidth,
             desiredHeight);
+        Region?.Dispose();
+        Region = new Region(RoundedRect(new Rectangle(0, 0, Width, Height), 22));
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
     }
 
@@ -120,17 +122,7 @@ public sealed class NativeDockForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-    }
-
-    private void RenderLayeredDock()
-    {
-        if (Width <= 0 || Height <= 0)
-        {
-            return;
-        }
-
-        using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(bitmap);
+        var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
         graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
@@ -174,7 +166,6 @@ public sealed class NativeDockForm : Form
         }
 
         DrawItems(graphics, _viewModel.RunningDockItems, ref x, y, pinned: false);
-        ApplyLayeredBitmap(bitmap);
     }
 
     private void DrawItems(Graphics graphics, IEnumerable<DockItemViewModel> items, ref int x, int y, bool pinned)
@@ -275,45 +266,6 @@ public sealed class NativeDockForm : Form
         EnableAcrylicAccent(handle);
     }
 
-    private void ApplyLayeredBitmap(Bitmap bitmap)
-    {
-        var screenDc = NativeMethods.GetDC(IntPtr.Zero);
-        var memoryDc = NativeMethods.CreateCompatibleDC(screenDc);
-        var bitmapHandle = bitmap.GetHbitmap(Color.FromArgb(0));
-        var oldBitmap = NativeMethods.SelectObject(memoryDc, bitmapHandle);
-
-        try
-        {
-            var size = new NativeSize(bitmap.Width, bitmap.Height);
-            var source = new NativePoint(0, 0);
-            var topPosition = new NativePoint(Left, Top);
-            var blend = new BlendFunction
-            {
-                BlendOp = AC_SRC_OVER,
-                SourceConstantAlpha = 255,
-                AlphaFormat = AC_SRC_ALPHA
-            };
-
-            _ = NativeMethods.UpdateLayeredWindow(
-                Handle,
-                screenDc,
-                ref topPosition,
-                ref size,
-                memoryDc,
-                ref source,
-                0,
-                ref blend,
-                ULW_ALPHA);
-        }
-        finally
-        {
-            _ = NativeMethods.SelectObject(memoryDc, oldBitmap);
-            _ = NativeMethods.DeleteObject(bitmapHandle);
-            _ = NativeMethods.DeleteDC(memoryDc);
-            _ = NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
-        }
-    }
-
     private static void EnableAcrylicAccent(IntPtr handle)
     {
         var accent = new AccentPolicy
@@ -360,7 +312,6 @@ public sealed class NativeDockForm : Form
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
     private const int WS_EX_NOACTIVATE = 0x08000000;
-    private const int WS_EX_LAYERED = 0x00080000;
     private const uint SWP_SHOWWINDOW = 0x0040;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const int DWMWA_USE_HOSTBACKDROPBRUSH = 17;
@@ -372,9 +323,6 @@ public sealed class NativeDockForm : Form
     private const int DWMSBT_TRANSIENTWINDOW = 3;
     private const int WCA_ACCENT_POLICY = 19;
     private const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
-    private const int ULW_ALPHA = 0x00000002;
-    private const byte AC_SRC_OVER = 0x00;
-    private const byte AC_SRC_ALPHA = 0x01;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AccentPolicy
@@ -391,29 +339,6 @@ public sealed class NativeDockForm : Form
         public int Attribute;
         public IntPtr Data;
         public int SizeOfData;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint(int x, int y)
-    {
-        public int X = x;
-        public int Y = y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeSize(int width, int height)
-    {
-        public int Width = width;
-        public int Height = height;
-    }
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct BlendFunction
-    {
-        public byte BlendOp;
-        public byte BlendFlags;
-        public byte SourceConstantAlpha;
-        public byte AlphaFormat;
     }
 
     private static class NativeMethods
@@ -436,35 +361,6 @@ public sealed class NativeDockForm : Form
         [DllImport("dwmapi.dll")]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
-        [DllImport("user32.dll")]
-        public static extern IntPtr GetDC(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDc);
-
-        [DllImport("gdi32.dll")]
-        public static extern IntPtr CreateCompatibleDC(IntPtr hDc);
-
-        [DllImport("gdi32.dll")]
-        public static extern bool DeleteDC(IntPtr hDc);
-
-        [DllImport("gdi32.dll")]
-        public static extern IntPtr SelectObject(IntPtr hDc, IntPtr hObject);
-
-        [DllImport("gdi32.dll")]
-        public static extern bool DeleteObject(IntPtr hObject);
-
-        [DllImport("user32.dll")]
-        public static extern bool UpdateLayeredWindow(
-            IntPtr hWnd,
-            IntPtr hdcDst,
-            ref NativePoint pptDst,
-            ref NativeSize psize,
-            IntPtr hdcSrc,
-            ref NativePoint pptSrc,
-            int crKey,
-            ref BlendFunction pblend,
-            int dwFlags);
     }
 
     [StructLayout(LayoutKind.Sequential)]
