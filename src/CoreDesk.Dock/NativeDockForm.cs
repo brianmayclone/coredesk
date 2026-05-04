@@ -12,6 +12,7 @@ public sealed class NativeDockForm : Form
 {
     private readonly ShellViewModel _viewModel;
     private readonly IDiagnosticsService _diagnostics;
+    private readonly int? _parentProcessId;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
     private readonly System.Windows.Forms.Timer _visibilityTimer = new();
     private readonly System.Windows.Forms.Timer _animationTimer = new();
@@ -29,10 +30,11 @@ public sealed class NativeDockForm : Form
     private Point _mouseDownLocation;
     private bool _dragStarted;
 
-    public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics)
+    public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null)
     {
         _viewModel = viewModel;
         _diagnostics = diagnostics;
+        _parentProcessId = parentProcessId;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -354,7 +356,7 @@ public sealed class NativeDockForm : Form
         }
 
         NativeMethods.GetWindowThreadProcessId(foreground, out var processId);
-        if (processId == (uint)Environment.ProcessId)
+        if (processId == (uint)Environment.ProcessId || (_parentProcessId is not null && processId == (uint)_parentProcessId.Value))
         {
             return false;
         }

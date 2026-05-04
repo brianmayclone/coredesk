@@ -187,7 +187,7 @@
                 </GridView.ItemTemplate>
             </GridView>
 
-            <StackPanel Grid.Row="3" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="9" Margin="0,0,0,13">
+            <StackPanel Grid.Row="3" HorizontalAlignment="Center" Orientation="Horizontal" Spacing="9" Margin="0,0,0,154">
                 <Border Width="30" Height="8" Background="#FFFFFFFF" CornerRadius="4" />
                 <Border Width="8" Height="8" Background="#99FFFFFF" CornerRadius="4" />
                 <Border Width="8" Height="8" Background="#99FFFFFF" CornerRadius="4" />

@@ -18,15 +18,15 @@ public static class Program
         System.Windows.Forms.Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         System.Windows.Forms.Application.EnableVisualStyles();
         System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
-        using var parentMonitor = CreateParentMonitor(args);
-        using var form = new NativeDockForm(Services.CreateShellViewModel(), Services.Diagnostics);
+        var parentPid = TryReadParentPid(args);
+        using var parentMonitor = CreateParentMonitor(parentPid);
+        using var form = new NativeDockForm(Services.CreateShellViewModel(), Services.Diagnostics, parentPid);
         System.Windows.Forms.Application.Run(form);
         Services.Dispose();
     }
 
-    private static System.Windows.Forms.Timer? CreateParentMonitor(string[] args)
+    private static System.Windows.Forms.Timer? CreateParentMonitor(int? parentPid)
     {
-        var parentPid = TryReadParentPid(args);
         if (parentPid is null)
         {
             Services.Diagnostics.Info("CoreDesk.Dock parent monitor disabled; no parent PID supplied.");
