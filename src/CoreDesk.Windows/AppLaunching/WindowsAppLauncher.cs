@@ -19,6 +19,12 @@ public sealed class WindowsAppLauncher : IAppLauncher
             return Task.CompletedTask;
         }
 
+        if (!string.IsNullOrWhiteSpace(app.AppUserModelId))
+        {
+            Process.Start(new ProcessStartInfo($@"shell:AppsFolder\{app.AppUserModelId}") { UseShellExecute = true });
+            return Task.CompletedTask;
+        }
+
         var launchPath = app.LaunchPath ?? app.ExecutablePath;
         if (string.IsNullOrWhiteSpace(launchPath))
         {

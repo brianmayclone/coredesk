@@ -236,7 +236,7 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
         _trayIcon = new NotifyIcon
         {
             Text = "CoreDesk",
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = LoadCoreDeskIcon(),
             ContextMenuStrip = menu,
             Visible = true
         };
@@ -268,6 +268,12 @@ public sealed class WindowsSystemIntegrationService : ISystemIntegrationService
     private void Request(SystemIntegrationCommand command)
     {
         CommandRequested?.Invoke(this, command);
+    }
+
+    private static System.Drawing.Icon LoadCoreDeskIcon()
+    {
+        return System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+            ?? System.Drawing.SystemIcons.Application;
     }
 
     private void HideTaskbar(IntPtr taskbarHandle)

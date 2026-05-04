@@ -95,10 +95,14 @@
                             PointerReleased="OnTilePointerReleased"
                             PointerExited="OnTilePointerReleased"
                             RenderTransformOrigin="0.5,0.5"
+                            Translation="0,0,32"
                             Background="#D9FFFFFF"
                             BorderBrush="#44FFFFFF"
                             BorderThickness="1"
                             CornerRadius="30">
+                            <Border.Shadow>
+                                <ThemeShadow />
+                            </Border.Shadow>
                             <StackPanel Spacing="5">
                                 <TextBlock Text="{x:Bind Title}" Foreground="#B0212B34" FontSize="15" FontWeight="SemiBold" />
                                 <TextBlock Text="{x:Bind PrimaryText}" Foreground="#FF111820" FontSize="30" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" />
@@ -148,9 +152,13 @@
                                 Width="108"
                                 Height="108"
                                 HorizontalAlignment="Center"
+                                Translation="0,0,20"
                                 Background="{Binding IconPath, Converter={StaticResource IconPathToBrushConverter}}"
                                 CornerRadius="24"
                                 Visibility="{Binding IsAppTile, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Border.Shadow>
+                                    <ThemeShadow />
+                                </Border.Shadow>
                                 <Grid>
                                     <FontIcon
                                         Glyph="&#xECAA;"
@@ -168,9 +176,13 @@
                                 Width="108"
                                 Height="108"
                                 HorizontalAlignment="Center"
+                                Translation="0,0,20"
                                 Background="#DCF7F8FA"
                                 CornerRadius="24"
                                 Visibility="{Binding IsFolderTile, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <Border.Shadow>
+                                    <ThemeShadow />
+                                </Border.Shadow>
                                 <Grid Padding="12">
                                     <ItemsControl ItemsSource="{x:Bind FolderPreviewApps, Mode=OneWay}">
                                         <ItemsControl.ItemsPanel>
@@ -199,9 +211,14 @@
                                 TextAlignment="Center"
                                 TextWrapping="Wrap"
                                 MaxLines="2"
+                                Translation="0,0,8"
                                 Foreground="White"
                                 FontWeight="SemiBold"
-                                FontSize="14" />
+                                FontSize="14">
+                                <TextBlock.Shadow>
+                                    <ThemeShadow />
+                                </TextBlock.Shadow>
+                            </TextBlock>
                         </StackPanel>
                     </DataTemplate>
                 </GridView.ItemTemplate>

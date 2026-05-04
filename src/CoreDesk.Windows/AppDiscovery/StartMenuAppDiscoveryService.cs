@@ -8,7 +8,7 @@ public sealed class StartMenuAppDiscoveryService : IAppDiscoveryService
 {
     private readonly WindowsIconCache _iconCache = new();
 
-    public Task<IReadOnlyList<AppEntry>> DiscoverAppsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AppEntry>> DiscoverAppsAsync(CancellationToken cancellationToken = default)
     {
         var entries = new Dictionary<string, AppEntry>(StringComparer.OrdinalIgnoreCase);
 
@@ -50,7 +50,12 @@ public sealed class StartMenuAppDiscoveryService : IAppDiscoveryService
             }
         }
 
-        return Task.FromResult<IReadOnlyList<AppEntry>>([.. entries.Values.OrderBy(entry => entry.DisplayName)]);
+        foreach (var storeApp in await StoreAppDiscoveryService.DiscoverAppsAsync(cancellationToken))
+        {
+            entries.TryAdd(storeApp.AppUserModelId ?? storeApp.Id, storeApp);
+        }
+
+        return [.. entries.Values.OrderBy(entry => entry.DisplayName)];
     }
 
     private static IEnumerable<string> GetStartMenuFolders()
