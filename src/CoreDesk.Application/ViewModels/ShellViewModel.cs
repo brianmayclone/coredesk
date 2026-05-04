@@ -29,6 +29,7 @@ public sealed partial class ShellViewModel(
     private List<AppEntry> _allApps = [];
     private HomeLayout _layout = new();
     private readonly DefaultLayoutBuilder _defaultLayoutBuilder = new();
+    private readonly LayoutService _layoutService = new();
     private DisplayMetrics _displayMetrics = new(1920, 1080, 96, 96, null, null);
 
     public ObservableCollection<AppEntry> HomeApps { get; } = [];
@@ -408,6 +409,41 @@ public sealed partial class ShellViewModel(
         diagnostics.Info($"App index refreshed. Apps: {_allApps.Count}");
     }
 
+    public async Task AddAppToDockAsync(string appId, int? targetIndex = null, CancellationToken cancellationToken = default)
+    {
+        if (!_allApps.Any(app => app.Id.Equals(appId, StringComparison.OrdinalIgnoreCase)))
+        {
+            diagnostics.Info($"Dock add ignored; app '{appId}' was not found.");
+            return;
+        }
+
+        _layoutService.AddAppToDock(_layout, appId, targetIndex);
+        TrimDock();
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        await RefreshAppCollectionsAsync(cancellationToken);
+        diagnostics.Info($"Added app '{appId}' to dock at index {targetIndex?.ToString() ?? "end"}.");
+    }
+
+    public async Task MoveDockItemAsync(string appId, int targetIndex, CancellationToken cancellationToken = default)
+    {
+        if (!_layout.DockAppIds.Contains(appId, StringComparer.OrdinalIgnoreCase))
+        {
+            await AddAppToDockAsync(appId, targetIndex, cancellationToken);
+            return;
+        }
+
+        _layoutService.AddAppToDock(_layout, appId, targetIndex);
+        TrimDock();
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        await RefreshAppCollectionsAsync(cancellationToken);
+        diagnostics.Info($"Moved dock app '{appId}' to index {targetIndex}.");
+    }
+
+    public bool HasApp(string appId)
+    {
+        return _allApps.Any(app => app.Id.Equals(appId, StringComparison.OrdinalIgnoreCase));
+    }
+
     private void RefreshStatus()
     {
         var status = systemStatusService.GetStatus(CurrentMode, hardwareMonitor.Current.IsKeyboardPresent);
@@ -575,5 +611,15 @@ public sealed partial class ShellViewModel(
                 yield return app;
             }
         }
+    }
+
+    private void TrimDock()
+    {
+        var distinct = _layout.DockAppIds
+            .Where(id => _allApps.Any(app => app.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+        _layout.DockAppIds = distinct;
     }
 }

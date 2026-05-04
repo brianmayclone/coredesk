@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.ComponentModel;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace CoreDesk_App;
 
@@ -97,6 +98,21 @@ public sealed partial class MainPage : Page
         {
             await ViewModel.LaunchAppCommand.ExecuteAsync(app);
         }
+    }
+
+    private void OnAppDragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        var app = e.Items.OfType<AppEntry>().FirstOrDefault()
+            ?? e.Items.OfType<HomeTileViewModel>().FirstOrDefault(tile => tile.App is not null)?.App;
+        if (app is null)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        e.Data.RequestedOperation = DataPackageOperation.Move;
+        e.Data.Properties.Title = app.DisplayName;
+        e.Data.SetText($"coredesk-app:{app.Id}");
     }
 
     private void OnFolderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)

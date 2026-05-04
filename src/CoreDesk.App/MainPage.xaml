@@ -99,6 +99,8 @@
             <GridView
                 x:Name="HomeGrid"
                 Grid.Row="2"
+                CanDragItems="True"
+                DragItemsStarting="OnAppDragItemsStarting"
                 Margin="0,22,0,24"
                 IsItemClickEnabled="True"
                 ItemClick="OnAppItemClick"
@@ -239,7 +241,10 @@
                 </Grid>
 
                 <GridView
+                    x:Name="DrawerGrid"
                     Grid.Row="1"
+                    CanDragItems="True"
+                    DragItemsStarting="OnAppDragItemsStarting"
                     IsItemClickEnabled="True"
                     ItemClick="OnAppItemClick"
                     ItemsSource="{x:Bind ViewModel.DrawerApps, Mode=OneWay}"
@@ -298,7 +303,10 @@
                         </Button>
                     </Grid>
                     <GridView
+                        x:Name="FolderGrid"
                         MaxHeight="420"
+                        CanDragItems="True"
+                        DragItemsStarting="OnAppDragItemsStarting"
                         IsItemClickEnabled="True"
                         ItemClick="OnAppItemClick"
                         ItemsSource="{x:Bind ViewModel.OpenFolderApps, Mode=OneWay}"

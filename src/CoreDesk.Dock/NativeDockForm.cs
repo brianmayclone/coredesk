@@ -14,10 +14,20 @@ public sealed class NativeDockForm : Form
     private readonly IDiagnosticsService _diagnostics;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
     private readonly System.Windows.Forms.Timer _visibilityTimer = new();
+    private readonly System.Windows.Forms.Timer _animationTimer = new();
     private readonly Dictionary<string, Image> _iconCache = [];
-    private readonly List<(Rectangle Bounds, DockItemViewModel Item)> _hitTargets = [];
+    private readonly List<DockHitTarget> _hitTargets = [];
     private bool _initialized;
     private bool _initializing;
+    private bool _isAutoHidden;
+    private bool _isAnimating;
+    private int _visibleTop;
+    private int _hiddenTop;
+    private int _animationTargetTop;
+    private DateTime? _foregroundOverlapSince;
+    private DockHitTarget? _pressedTarget;
+    private Point _mouseDownLocation;
+    private bool _dragStarted;
 
     public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics)
     {
@@ -32,6 +42,7 @@ public sealed class NativeDockForm : Form
         TransparencyKey = TransparencyKeyColor;
         ShowIcon = false;
         Text = "CoreDesk Dock";
+        AllowDrop = true;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
         PositionDock();
@@ -41,8 +52,11 @@ public sealed class NativeDockForm : Form
         _refreshTimer.Start();
 
         _visibilityTimer.Interval = 250;
-        _visibilityTimer.Tick += (_, _) => ForceVisible();
+        _visibilityTimer.Tick += (_, _) => MonitorVisibility();
         _visibilityTimer.Start();
+
+        _animationTimer.Interval = 15;
+        _animationTimer.Tick += (_, _) => StepAnimation();
     }
 
     protected override CreateParams CreateParams
@@ -100,6 +114,7 @@ public sealed class NativeDockForm : Form
     private void ConfigureWindow()
     {
         PositionDock();
+        ConfigureDwmBackdrop(Handle);
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
         Invalidate();
     }
@@ -114,6 +129,11 @@ public sealed class NativeDockForm : Form
         if (!Visible)
         {
             Show();
+        }
+
+        if (_isAutoHidden)
+        {
+            ShowDockAnimated();
         }
 
         TopMost = true;
@@ -131,7 +151,11 @@ public sealed class NativeDockForm : Form
 
             _viewModel.Tick();
             PositionDock();
-            ForceVisible();
+            if (!_isAutoHidden)
+            {
+                ForceVisible();
+            }
+
             Invalidate();
         }
         catch (Exception exception)
@@ -151,6 +175,13 @@ public sealed class NativeDockForm : Form
             screen.Bottom - desiredHeight - metrics.BottomInset,
             desiredWidth,
             desiredHeight);
+        _visibleTop = screen.Bottom - desiredHeight - metrics.BottomInset;
+        _hiddenTop = screen.Bottom - Math.Max(Scale(7, metrics.DpiScale), 4);
+        if (_isAutoHidden && !_isAnimating)
+        {
+            Top = _hiddenTop;
+        }
+
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
     }
 
@@ -163,6 +194,8 @@ public sealed class NativeDockForm : Form
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
+        _pressedTarget = null;
+        _dragStarted = false;
         foreach (var target in _hitTargets)
         {
             if (!target.Bounds.Contains(e.Location))
@@ -170,9 +203,87 @@ public sealed class NativeDockForm : Form
                 continue;
             }
 
-            _ = OpenDockItemAsync(target.Item);
-
+            _pressedTarget = target;
+            _mouseDownLocation = e.Location;
             return;
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (_pressedTarget is null || _dragStarted || e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        var dragSize = SystemInformation.DragSize;
+        var dragRect = new Rectangle(
+            _mouseDownLocation.X - (dragSize.Width / 2),
+            _mouseDownLocation.Y - (dragSize.Height / 2),
+            dragSize.Width,
+            dragSize.Height);
+        if (dragRect.Contains(e.Location))
+        {
+            return;
+        }
+
+        _dragStarted = true;
+        var data = new DataObject();
+        data.SetText($"coredesk-app:{_pressedTarget.Item.App.Id}");
+        DoDragDrop(data, DragDropEffects.Move);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (_pressedTarget is null)
+        {
+            return;
+        }
+
+        var target = _pressedTarget;
+        _pressedTarget = null;
+        if (!_dragStarted && target.Bounds.Contains(e.Location))
+        {
+            _ = OpenDockItemAsync(target.Item);
+        }
+
+        _dragStarted = false;
+    }
+
+    protected override void OnDragEnter(DragEventArgs drgevent)
+    {
+        base.OnDragEnter(drgevent);
+        drgevent.Effect = TryGetDraggedAppId(drgevent.Data, out _) ? DragDropEffects.Move : DragDropEffects.None;
+        ShowDockAnimated();
+    }
+
+    protected override void OnDragOver(DragEventArgs drgevent)
+    {
+        base.OnDragOver(drgevent);
+        drgevent.Effect = TryGetDraggedAppId(drgevent.Data, out _) ? DragDropEffects.Move : DragDropEffects.None;
+    }
+
+    protected override async void OnDragDrop(DragEventArgs drgevent)
+    {
+        base.OnDragDrop(drgevent);
+        if (!TryGetDraggedAppId(drgevent.Data, out var appId))
+        {
+            return;
+        }
+
+        var clientPoint = PointToClient(new Point(drgevent.X, drgevent.Y));
+        var targetIndex = GetDockTargetIndex(clientPoint);
+        try
+        {
+            await _viewModel.MoveDockItemAsync(appId, targetIndex);
+            PositionDock();
+            Invalidate();
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.Error(exception, $"Dock drop failed for app '{appId}'.");
         }
     }
 
@@ -197,6 +308,156 @@ public sealed class NativeDockForm : Form
             UseWaitCursor = false;
             ForceVisible();
         }
+    }
+
+    private void MonitorVisibility()
+    {
+        if (IsDisposed || !_initialized)
+        {
+            return;
+        }
+
+        var cursor = Cursor.Position;
+        var screen = Screen.PrimaryScreen!.Bounds;
+        if (_isAutoHidden && cursor.Y >= screen.Bottom - Scale(4, GetMetrics().DpiScale))
+        {
+            ShowDockAnimated();
+            _foregroundOverlapSince = null;
+            return;
+        }
+
+        if (!_isAutoHidden && IsForegroundWindowUnderDock())
+        {
+            _foregroundOverlapSince ??= DateTime.UtcNow;
+            if (DateTime.UtcNow - _foregroundOverlapSince.Value >= TimeSpan.FromSeconds(5))
+            {
+                HideDockAnimated();
+            }
+
+            return;
+        }
+
+        _foregroundOverlapSince = null;
+        if (!_isAutoHidden)
+        {
+            TopMost = true;
+            NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
+        }
+    }
+
+    private bool IsForegroundWindowUnderDock()
+    {
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (foreground == IntPtr.Zero || foreground == Handle)
+        {
+            return false;
+        }
+
+        NativeMethods.GetWindowThreadProcessId(foreground, out var processId);
+        if (processId == (uint)Environment.ProcessId)
+        {
+            return false;
+        }
+
+        if (!NativeMethods.GetWindowRect(foreground, out var rect))
+        {
+            return false;
+        }
+
+        var windowRect = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+        var dockRect = new Rectangle(Left, _visibleTop, Width, Height);
+        return windowRect.IntersectsWith(dockRect);
+    }
+
+    private void HideDockAnimated()
+    {
+        if (_isAutoHidden)
+        {
+            return;
+        }
+
+        _isAutoHidden = true;
+        StartAnimation(_hiddenTop);
+    }
+
+    private void ShowDockAnimated()
+    {
+        if (!_isAutoHidden && !_isAnimating)
+        {
+            return;
+        }
+
+        _isAutoHidden = false;
+        StartAnimation(_visibleTop);
+    }
+
+    private void StartAnimation(int targetTop)
+    {
+        _animationTargetTop = targetTop;
+        _isAnimating = true;
+        if (!_animationTimer.Enabled)
+        {
+            _animationTimer.Start();
+        }
+    }
+
+    private void StepAnimation()
+    {
+        var delta = _animationTargetTop - Top;
+        if (Math.Abs(delta) <= 2)
+        {
+            Top = _animationTargetTop;
+            _isAnimating = false;
+            _animationTimer.Stop();
+        }
+        else
+        {
+            Top += (int)Math.Round(delta * 0.22);
+        }
+
+        var progress = _hiddenTop == _visibleTop
+            ? 1.0
+            : 1.0 - Math.Clamp((Top - _visibleTop) / (double)(_hiddenTop - _visibleTop), 0.0, 1.0);
+        Opacity = Math.Clamp(0.18 + (progress * 0.82), 0.18, 1.0);
+        NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
+    }
+
+    private static bool TryGetDraggedAppId(IDataObject? data, out string appId)
+    {
+        appId = string.Empty;
+        if (data is null || !data.GetDataPresent(DataFormats.UnicodeText) && !data.GetDataPresent(DataFormats.Text))
+        {
+            return false;
+        }
+
+        var text = (data.GetData(DataFormats.UnicodeText) ?? data.GetData(DataFormats.Text)) as string;
+        const string prefix = "coredesk-app:";
+        if (string.IsNullOrWhiteSpace(text) || !text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        appId = text[prefix.Length..].Trim();
+        return !string.IsNullOrWhiteSpace(appId);
+    }
+
+    private int GetDockTargetIndex(Point point)
+    {
+        var metrics = GetMetrics();
+        var visualCount = Math.Min(metrics.VisualItemCount, 8);
+        var contentWidth = (visualCount * metrics.IconSlot) + (Math.Max(0, visualCount - 1) * metrics.ItemGap);
+        var x = (Width - contentWidth) / 2;
+        for (var index = 0; index < visualCount; index++)
+        {
+            if (point.X < x + (metrics.IconSlot / 2))
+            {
+                return index;
+            }
+
+            x += metrics.IconSlot + metrics.ItemGap;
+        }
+
+        return visualCount;
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -326,7 +587,7 @@ public sealed class NativeDockForm : Form
             DrawFallbackAppIcon(graphics, iconBounds, item.Item3, item.Item2);
             if (interactive)
             {
-                _hitTargets.Add((bounds, new DockItemViewModel(new AppEntry(item.Item1, item.Item1, AppKind.SystemAction), false)));
+                _hitTargets.Add(new DockHitTarget(bounds, new DockItemViewModel(new AppEntry(item.Item1, item.Item1, AppKind.SystemAction), false), _hitTargets.Count));
             }
 
             x += metrics.IconSlot + metrics.ItemGap;
@@ -339,7 +600,7 @@ public sealed class NativeDockForm : Form
         foreach (var item in items.Take(pinned ? 8 : 4))
         {
             var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
-            _hitTargets.Add((bounds, item));
+            _hitTargets.Add(new DockHitTarget(bounds, item, _hitTargets.Count));
             DrawIcon(graphics, item, Centered(bounds, metrics.IconSize));
             if (item.IsRunning || !pinned)
             {
@@ -635,6 +896,7 @@ public sealed class NativeDockForm : Form
         {
             _refreshTimer.Dispose();
             _visibilityTimer.Dispose();
+            _animationTimer.Dispose();
             foreach (var image in _iconCache.Values)
             {
                 image.Dispose();
@@ -694,6 +956,8 @@ public sealed class NativeDockForm : Form
         int BottomInset,
         int ScreenInset,
         int SideShadow);
+
+    private sealed record DockHitTarget(Rectangle Bounds, DockItemViewModel Item, int Index);
 
     private enum SystemGlyph
     {
