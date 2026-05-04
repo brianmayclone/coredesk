@@ -11,7 +11,6 @@ public sealed class WindowsShellReplacementService(IDiagnosticsService? diagnost
     private const string UserWinlogonKeyPath = @"Software\Microsoft\Windows NT\CurrentVersion\Winlogon";
     private const string ShellValueName = "Shell";
     private const uint EVENT_MODIFY_STATE = 0x0002;
-    private const int WM_CLOSE = 0x0010;
 
     public bool IsSessionReplacementActive { get; private set; }
 
@@ -42,8 +41,6 @@ public sealed class WindowsShellReplacementService(IDiagnosticsService? diagnost
         }
 
         diagnostics?.Info($"Stopping Explorer shell for current session. Processes: {string.Join(", ", explorerProcessIds)}.");
-        CloseExplorerShellWindows();
-
         foreach (var processId in explorerProcessIds)
         {
             StopProcess(processId);
@@ -96,12 +93,6 @@ public sealed class WindowsShellReplacementService(IDiagnosticsService? diagnost
         return processIds;
     }
 
-    private static void CloseExplorerShellWindows()
-    {
-        PostClose(FindWindow("Shell_TrayWnd", null));
-        PostClose(FindWindow("Progman", null));
-    }
-
     private static void StopProcess(int processId)
     {
         try
@@ -134,14 +125,6 @@ public sealed class WindowsShellReplacementService(IDiagnosticsService? diagnost
         if (processId != 0)
         {
             processIds.Add((int)processId);
-        }
-    }
-
-    private static void PostClose(IntPtr windowHandle)
-    {
-        if (windowHandle != IntPtr.Zero)
-        {
-            _ = PostMessage(windowHandle, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
         }
     }
 
@@ -178,9 +161,6 @@ public sealed class WindowsShellReplacementService(IDiagnosticsService? diagnost
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-    [DllImport("user32.dll")]
-    private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern SafeWaitHandle OpenEvent(uint dwDesiredAccess, bool bInheritHandle, string lpName);

@@ -6,51 +6,45 @@ namespace CoreDesk.LiquidGlass;
 
 public sealed class LiquidGlassWindow : Window
 {
-    private readonly Border _surfaceHost;
     private readonly LiquidGlassOptions _options;
-    private LiquidGlassSurface? _surface;
 
     public LiquidGlassWindow(LiquidGlassOptions? options = null)
     {
         _options = options ?? LiquidGlassOptions.Default;
         Title = "CoreDesk Liquid Glass";
-        _surfaceHost = new Border
+        var surfaceHost = new LiquidGlassPanel
         {
             Width = _options.SurfaceWidth,
             Height = _options.SurfaceHeight,
+            Options = _options,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        surfaceHost.Children.Add(new Border
+        {
             CornerRadius = new CornerRadius(_options.CornerRadius),
             BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(122, 255, 255, 255)),
             BorderThickness = new Thickness(1),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new Grid
+            Child = new TextBlock
             {
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = "Liquid Glass",
-                        FontSize = 38,
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(235, 255, 255, 255)),
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    }
-                }
+                Text = "Liquid Glass",
+                FontSize = 38,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(235, 255, 255, 255)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
             }
-        };
+        });
 
         Content = new Grid
         {
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
-            Children = { _surfaceHost }
+            Children = { surfaceHost }
         };
 
         Activated += (_, _) =>
         {
             NativeWindowChrome.ConfigureTransparentBorderless(this, _options.WindowWidth, _options.WindowHeight);
-            _surface ??= new LiquidGlassSurface(_surfaceHost, _options);
         };
-        Closed += (_, _) => _surface?.Dispose();
     }
 }

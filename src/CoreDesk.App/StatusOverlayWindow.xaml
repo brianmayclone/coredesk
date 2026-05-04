@@ -13,7 +13,7 @@
         <Border x:Name="StatusSurface" Background="Transparent">
             <Grid>
                 <Border x:Name="DarkStatusBackdrop" Background="#EE0F1216" Opacity="0" />
-                <Grid Padding="22,0" ColumnSpacing="12" VerticalAlignment="Center">
+                <Grid Padding="22,1,22,3" ColumnSpacing="12" VerticalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -27,7 +27,7 @@
                         x:Name="ControlCenterHotZone"
                         Grid.Column="1"
                         MinWidth="128"
-                        Height="32"
+                        Height="34"
                         Padding="12,0"
                         HorizontalAlignment="Right"
                         Background="Transparent"

@@ -23,8 +23,9 @@ public sealed partial class MainPage : Page
     private int _pageAnimationDirection = 1;
     private bool _isDraggingHomeItem;
     private bool _createdPageDuringCurrentDrag;
+    private bool _homeInitializationCompleted;
 
-    public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
+    public ShellViewModel ViewModel { get; } = App.ShellViewModel;
 
     public MainPage()
     {
@@ -53,11 +54,43 @@ public sealed partial class MainPage : Page
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         Loaded -= OnLoaded;
-        await ViewModel.InitializeAsync();
-        _lastPageIndex = ViewModel.CurrentPageIndex;
-        ApplyWallpaper();
-        Bindings.Update();
-        App.NotifyHomeExperienceReady(homeMode: true);
+        _ = ShowInitializationTimeoutIfNeededAsync();
+
+        try
+        {
+            await App.EnsureShellReadyAsync();
+            _homeInitializationCompleted = true;
+            StartupErrorOverlay.Visibility = Visibility.Collapsed;
+            _lastPageIndex = ViewModel.CurrentPageIndex;
+            ApplyWallpaper();
+            Bindings.Update();
+            App.NotifyHomeExperienceReady(homeMode: true);
+        }
+        catch (Exception exception)
+        {
+            _homeInitializationCompleted = true;
+            App.Services.Diagnostics.Error(exception, "Homescreen initialization failed.");
+            ShowStartupError($"Fehler beim Laden des Homescreens: {exception.Message}");
+        }
+    }
+
+    private async Task ShowInitializationTimeoutIfNeededAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(12));
+        if (_homeInitializationCompleted)
+        {
+            return;
+        }
+
+        var message = "Der Homescreen lädt seit mehr als 12 Sekunden. Auf Windows ARM hängt wahrscheinlich die App-Erkennung, Store-App-Erkennung oder Icon-Auflösung während ViewModel.InitializeAsync().";
+        App.Services.Diagnostics.Info(message);
+        ShowStartupError(message);
+    }
+
+    private void ShowStartupError(string message)
+    {
+        StartupErrorMessage.Text = message;
+        StartupErrorOverlay.Visibility = Visibility.Visible;
     }
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)

@@ -12,9 +12,11 @@ public sealed class LiquidGlassSurface : IDisposable
     private readonly FrameworkElement _host;
     private readonly Compositor _compositor;
     private readonly LiquidGlassOptions _options;
+    private readonly SpriteVisual _shadowVisual;
     private readonly SpriteVisual _backdropVisual;
     private readonly SpriteVisual _tintVisual;
     private readonly SpriteVisual _refractionVisual;
+    private readonly SpriteVisual _specularVisual;
     private readonly SpriteVisual _edgeVisual;
     private readonly SpriteVisual _innerShadowVisual;
     private bool _disposed;
@@ -25,6 +27,9 @@ public sealed class LiquidGlassSurface : IDisposable
         _options = options ?? LiquidGlassOptions.Default;
         _compositor = ElementCompositionPreview.GetElementVisual(host).Compositor;
 
+        _shadowVisual = _compositor.CreateSpriteVisual();
+        _shadowVisual.Shadow = CreateOuterShadow();
+
         _backdropVisual = _compositor.CreateSpriteVisual();
         _backdropVisual.Brush = CreateLiquidGlassBrush();
 
@@ -33,6 +38,10 @@ public sealed class LiquidGlassSurface : IDisposable
 
         _refractionVisual = _compositor.CreateSpriteVisual();
         _refractionVisual.Brush = CreateRefractionBrush();
+
+        _specularVisual = _compositor.CreateSpriteVisual();
+        _specularVisual.Brush = CreateSpecularBrush();
+        _specularVisual.Opacity = _options.SpecularOpacity;
 
         _edgeVisual = _compositor.CreateSpriteVisual();
         _edgeVisual.Brush = CreateEdgeLightBrush();
@@ -45,9 +54,11 @@ public sealed class LiquidGlassSurface : IDisposable
         var root = _compositor.CreateContainerVisual();
         root.Children.InsertAtTop(_innerShadowVisual);
         root.Children.InsertAtTop(_edgeVisual);
+        root.Children.InsertAtTop(_specularVisual);
         root.Children.InsertAtTop(_refractionVisual);
         root.Children.InsertAtBottom(_tintVisual);
         root.Children.InsertAtBottom(_backdropVisual);
+        root.Children.InsertAtBottom(_shadowVisual);
         ElementCompositionPreview.SetElementChildVisual(host, root);
 
         host.SizeChanged += OnSizeChanged;
@@ -85,7 +96,7 @@ public sealed class LiquidGlassSurface : IDisposable
             Source = new ContrastEffect
             {
                 Name = "liquidContrast",
-                Contrast = _options.Contrast,
+                Contrast = ToWin2DContrast(_options.Contrast),
                 Source = new SaturationEffect
                 {
                     Name = "liquidSaturation",
@@ -124,6 +135,28 @@ public sealed class LiquidGlassSurface : IDisposable
         brush.ColorStops.Add(_compositor.CreateColorGradientStop(0.48f, Windows.UI.Color.FromArgb(26, 255, 255, 255)));
         brush.ColorStops.Add(_compositor.CreateColorGradientStop(1f, Windows.UI.Color.FromArgb(110, 255, 255, 255)));
         return brush;
+    }
+
+    private CompositionBrush CreateSpecularBrush()
+    {
+        var brush = _compositor.CreateLinearGradientBrush();
+        brush.StartPoint = new Vector2(0.12f, 0f);
+        brush.EndPoint = new Vector2(0.88f, 1f);
+        brush.ColorStops.Add(_compositor.CreateColorGradientStop(0f, Windows.UI.Color.FromArgb(210, 255, 255, 255)));
+        brush.ColorStops.Add(_compositor.CreateColorGradientStop(0.22f, Windows.UI.Color.FromArgb(64, 255, 255, 255)));
+        brush.ColorStops.Add(_compositor.CreateColorGradientStop(0.58f, Windows.UI.Color.FromArgb(0, 255, 255, 255)));
+        brush.ColorStops.Add(_compositor.CreateColorGradientStop(1f, Windows.UI.Color.FromArgb(92, 255, 255, 255)));
+        return brush;
+    }
+
+    private DropShadow CreateOuterShadow()
+    {
+        var shadow = _compositor.CreateDropShadow();
+        shadow.Color = Windows.UI.Color.FromArgb(255, 0, 0, 0);
+        shadow.Opacity = _options.OuterShadowOpacity;
+        shadow.BlurRadius = _options.ShadowBlurRadius;
+        shadow.Offset = new Vector3(0, _options.ShadowOffsetY, 0);
+        return shadow;
     }
 
     private CompositionEffectBrush CreateRefractionBrush()
@@ -176,14 +209,17 @@ public sealed class LiquidGlassSurface : IDisposable
     private void Resize(float width, float height)
     {
         var size = new Vector2(Math.Max(1, width), Math.Max(1, height));
+        _shadowVisual.Size = size;
         _backdropVisual.Size = size;
         _tintVisual.Size = size;
         _refractionVisual.Size = size;
+        _specularVisual.Size = size;
         _edgeVisual.Size = size;
         _innerShadowVisual.Size = size;
         TryApplyRoundedClip(_backdropVisual, size);
         TryApplyRoundedClip(_tintVisual, size);
         TryApplyRoundedClip(_refractionVisual, size);
+        TryApplyRoundedClip(_specularVisual, size);
         TryApplyRoundedClip(_edgeVisual, size);
         TryApplyRoundedClip(_innerShadowVisual, size);
     }
@@ -195,6 +231,14 @@ public sealed class LiquidGlassSurface : IDisposable
         geometry.CornerRadius = new Vector2(_options.CornerRadius);
         var clip = _compositor.CreateGeometricClip(geometry);
         visual.Clip = clip;
+    }
+
+    private static float ToWin2DContrast(float contrast)
+    {
+        var adjustment = contrast > 1f
+            ? contrast - 1f
+            : contrast;
+        return Math.Clamp(adjustment, -1f, 1f);
     }
 
     private static Windows.UI.Color ToColor(Vector4 color, float opacity)

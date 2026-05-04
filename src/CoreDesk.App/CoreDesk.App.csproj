@@ -58,6 +58,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CoreDesk.Abstractions\CoreDesk.Abstractions.csproj" />
     <ProjectReference Include="..\CoreDesk.Application\CoreDesk.Application.csproj" />
+    <ProjectReference Include="..\CoreDesk.LiquidGlass\CoreDesk.LiquidGlass.csproj" />
     <ProjectReference Include="..\CoreDesk.Persistence\CoreDesk.Persistence.csproj" />
     <ProjectReference Include="..\CoreDesk.Windows\CoreDesk.Windows.csproj" />
   </ItemGroup>

@@ -10,7 +10,7 @@ namespace CoreDesk_App;
 
 public sealed partial class StatusOverlayWindow : Window
 {
-    public const int ReservedHeight = 38;
+    public const int ReservedHeight = 42;
 
     private readonly DispatcherTimer _clock = new();
     private readonly DispatcherTimer _foregroundMonitor = new();
@@ -20,12 +20,13 @@ public sealed partial class StatusOverlayWindow : Window
     private double _targetBackdropOpacity = -1;
     private Windows.Foundation.Point? _pointerStart;
 
-    public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
+    public ShellViewModel ViewModel { get; }
 
     public nint WindowHandle => WinRT.Interop.WindowNative.GetWindowHandle(this);
 
-    public StatusOverlayWindow()
+    public StatusOverlayWindow(ShellViewModel viewModel)
     {
+        ViewModel = viewModel;
         InitializeComponent();
         Root.DataContext = ViewModel;
         Root.Tag = new SolidColorBrush(Microsoft.UI.Colors.White);
@@ -48,17 +49,24 @@ public sealed partial class StatusOverlayWindow : Window
 
     public async void ShowStatus(bool homeMode)
     {
-        _homeMode = homeMode;
-        if (!_initialized)
+        try
         {
-            _initialized = true;
-            await ViewModel.InitializeAsync();
-        }
+            _homeMode = homeMode;
+            if (!_initialized)
+            {
+                await App.EnsureShellReadyAsync();
+                _initialized = true;
+            }
 
-        PositionWindow();
-        ApplyForegroundStyle();
-        AppWindow.Show(true);
-        KeepTopMost();
+            PositionWindow();
+            ApplyForegroundStyle();
+            AppWindow.Show(false);
+            KeepTopMost();
+        }
+        catch (Exception exception)
+        {
+            App.Services.Diagnostics.Error(exception, "Status overlay failed to show.");
+        }
     }
 
     public void HideStatus()

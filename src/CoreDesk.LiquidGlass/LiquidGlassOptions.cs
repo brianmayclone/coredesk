@@ -31,4 +31,12 @@ public sealed record LiquidGlassOptions
     public float RefractionStrength { get; init; } = 0.018f;
 
     public float InnerShadowOpacity { get; init; } = 0.34f;
+
+    public float OuterShadowOpacity { get; init; } = 0.24f;
+
+    public float ShadowBlurRadius { get; init; } = 34f;
+
+    public float ShadowOffsetY { get; init; } = 12f;
+
+    public float SpecularOpacity { get; init; } = 0.30f;
 }

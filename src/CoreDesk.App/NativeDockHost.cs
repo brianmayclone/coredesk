@@ -90,7 +90,7 @@ public sealed class NativeDockHost : IDisposable
 
         return new ProcessStartInfo("dotnet")
         {
-            Arguments = $"run --project \"{projectPath}\" -p:Platform=x64 -- {BuildDockArguments(homeMode)}",
+            Arguments = $"run --project \"{projectPath}\" -p:Platform={GetPlatformName()} -- {BuildDockArguments(homeMode)}",
             UseShellExecute = false,
             WorkingDirectory = FindRepositoryRoot() ?? Environment.CurrentDirectory,
             CreateNoWindow = true
@@ -163,6 +163,14 @@ public sealed class NativeDockHost : IDisposable
             .Concat(candidates.OrderByDescending(File.GetLastWriteTimeUtc))
             .FirstOrDefault();
     }
+
+    private static string GetPlatformName() =>
+        RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X86 => "x86",
+            Architecture.Arm64 => "ARM64",
+            _ => "x64"
+        };
 
     private static string? FindDockProject()
     {

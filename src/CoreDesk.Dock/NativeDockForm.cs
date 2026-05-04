@@ -14,6 +14,7 @@ public sealed class NativeDockForm : Form
     private readonly ShellViewModel _viewModel;
     private readonly IDiagnosticsService _diagnostics;
     private readonly int? _parentProcessId;
+    private readonly Func<Task>? _ensureInitialized;
     private bool _homeMode;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
     private readonly System.Windows.Forms.Timer _visibilityTimer = new();
@@ -42,12 +43,14 @@ public sealed class NativeDockForm : Form
     private string? _pressedVisualId;
     private DateTime _pressedVisualUntil = DateTime.MinValue;
     private DateTime _lastTopMostRefresh = DateTime.MinValue;
+    private bool RequiresRealData => _parentProcessId is not null;
 
-    public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null, bool homeMode = false)
+    public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null, bool homeMode = false, Func<Task>? ensureInitialized = null)
     {
         _viewModel = viewModel;
         _diagnostics = diagnostics;
         _parentProcessId = parentProcessId;
+        _ensureInitialized = ensureInitialized;
         _homeMode = homeMode;
 
         FormBorderStyle = FormBorderStyle.None;
@@ -59,6 +62,7 @@ public sealed class NativeDockForm : Form
         ShowIcon = false;
         Text = "CoreDesk Dock";
         AllowDrop = true;
+        Opacity = RequiresRealData ? 0.01 : 1.0;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
 
         PositionDock();
@@ -88,7 +92,11 @@ public sealed class NativeDockForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        ForceVisible();
+        if (!RequiresRealData)
+        {
+            ForceVisible();
+        }
+
         _diagnostics.Info($"Native dock window shown before initialization. Handle={Handle}; Bounds={Bounds.Left},{Bounds.Top},{Bounds.Width},{Bounds.Height}; Visible={Visible}; TopMost={TopMost}.");
         BeginInvoke(new Action(async () =>
         {
@@ -96,6 +104,7 @@ public sealed class NativeDockForm : Form
             {
                 await EnsureInitializedAsync();
                 ConfigureWindow();
+                Opacity = 1.0;
                 ForceVisible();
                 _diagnostics.Info($"Native dock initialized. Handle={Handle}; Bounds={Bounds.Left},{Bounds.Top},{Bounds.Width},{Bounds.Height}; Visible={Visible}; TopMost={TopMost}; Pinned={_viewModel.PinnedDockItems.Count}; Running={_viewModel.RunningDockItems.Count}.");
             }
@@ -116,7 +125,15 @@ public sealed class NativeDockForm : Form
         try
         {
             _initializing = true;
-            await _viewModel.InitializeAsync();
+            if (_ensureInitialized is not null)
+            {
+                await _ensureInitialized();
+            }
+            else
+            {
+                await _viewModel.InitializeAsync();
+            }
+
             _initialized = true;
         }
         finally
@@ -125,6 +142,16 @@ public sealed class NativeDockForm : Form
         }
 
         RefreshDock();
+    }
+
+    public void SetHomeMode(bool homeMode)
+    {
+        _homeMode = homeMode;
+        if (homeMode)
+        {
+            _foregroundOverlapSince = null;
+            ForceVisible();
+        }
     }
 
     private void ConfigureWindow()
@@ -647,7 +674,7 @@ public sealed class NativeDockForm : Form
         var progress = _hiddenTop == _visibleTop
             ? 1.0
             : 1.0 - Math.Clamp((Top - _visibleTop) / (double)(_hiddenTop - _visibleTop), 0.0, 1.0);
-        Opacity = Math.Clamp(0.18 + (progress * 0.82), 0.18, 1.0);
+        Opacity = Math.Clamp(0.16 + (progress * 0.84), 0.16, 1.0);
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
     }
 
@@ -716,20 +743,26 @@ public sealed class NativeDockForm : Form
 
         using var glass = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(118, 72, 35, 52),
-            Color.FromArgb(92, 28, 18, 30),
+            Color.FromArgb(82, 255, 255, 255),
+            Color.FromArgb(58, 246, 248, 252),
             90f);
         using var sheen = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(132, 255, 255, 255),
-            Color.FromArgb(18, 255, 255, 255),
+            Color.FromArgb(112, 255, 255, 255),
+            Color.FromArgb(10, 255, 255, 255),
             90f);
-        using var stroke = new Pen(Color.FromArgb(92, 255, 255, 255), Math.Max(1f, metrics.DpiScale));
+        using var lowerShade = new LinearGradientBrush(
+            dockSurface,
+            Color.FromArgb(0, 0, 0, 0),
+            Color.FromArgb(38, 0, 0, 0),
+            90f);
+        using var stroke = new Pen(Color.FromArgb(124, 255, 255, 255), Math.Max(1f, metrics.DpiScale));
 
         graphics.FillPath(glass, path);
         graphics.FillPath(sheen, path);
+        graphics.FillPath(lowerShade, path);
         graphics.DrawPath(stroke, path);
-        using (var highlight = new Pen(Color.FromArgb(112, 255, 255, 255), Math.Max(1f, metrics.DpiScale)))
+        using (var highlight = new Pen(Color.FromArgb(150, 255, 255, 255), Math.Max(1f, metrics.DpiScale)))
         {
             graphics.DrawLine(highlight, dockSurface.Left + metrics.CornerRadius, dockSurface.Top + metrics.DpiScale, dockSurface.Right - metrics.CornerRadius, dockSurface.Top + metrics.DpiScale);
         }
@@ -742,7 +775,11 @@ public sealed class NativeDockForm : Form
 
         if (!_initialized)
         {
-            DrawFallbackItems(graphics, metrics, ref x, y, interactive: true);
+            if (!RequiresRealData)
+            {
+                DrawFallbackItems(graphics, metrics, ref x, y, interactive: true);
+            }
+
             return;
         }
 
@@ -769,7 +806,7 @@ public sealed class NativeDockForm : Form
     {
         if (!_initialized)
         {
-            return 9;
+            return RequiresRealData ? 1 : 9;
         }
 
         var realItemCount = 1
@@ -791,14 +828,14 @@ public sealed class NativeDockForm : Form
     private DockMetrics GetMetrics()
     {
         var scale = Math.Clamp(DeviceDpi / 96f, 1f, 2.5f);
-        var iconSlot = Scale(86, scale);
-        var iconSize = Scale(72, scale);
-        var itemGap = Scale(13, scale);
-        var sidePadding = Scale(26, scale);
+        var iconSlot = Scale(78, scale);
+        var iconSize = Scale(64, scale);
+        var itemGap = Scale(12, scale);
+        var sidePadding = Scale(22, scale);
         var itemCount = Math.Max(1, GetDockItemCount());
         var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap);
         var dockWidth = contentWidth + (sidePadding * 2);
-        var sideShadow = Scale(22, scale);
+        var sideShadow = Scale(28, scale);
 
         return new DockMetrics(
             scale,
@@ -811,11 +848,11 @@ public sealed class NativeDockForm : Form
             Scale(8, scale),
             Scale(3, scale),
             Scale(9, scale),
-            Scale(22, scale),
-            Math.Max(Scale(108, scale), iconSlot + Scale(24, scale)),
+            Scale(26, scale),
+            Math.Max(Scale(92, scale), iconSlot + Scale(16, scale)),
             dockWidth + (sideShadow * 2),
-            Math.Max(Scale(154, scale), iconSlot + Scale(66, scale)),
-            Scale(18, scale),
+            Math.Max(Scale(132, scale), iconSlot + Scale(54, scale)),
+            Scale(16, scale),
             Scale(34, scale),
             sideShadow);
     }
@@ -874,7 +911,7 @@ public sealed class NativeDockForm : Form
         var previousClip = graphics.Clip;
         graphics.SetClip(clipPath, CombineMode.Replace);
         using var attributes = new ImageAttributes();
-        var alpha = _isAutoHidden ? 0.58f : 0.80f;
+        var alpha = _isAutoHidden ? 0.56f : 0.92f;
         attributes.SetColorMatrix(new ColorMatrix
         {
             Matrix00 = 1f,
@@ -1366,12 +1403,12 @@ public sealed class NativeDockForm : Form
 
     private static void DrawSoftShadow(Graphics graphics, Rectangle surface)
     {
-        for (var index = 0; index < 10; index++)
+        for (var index = 0; index < 14; index++)
         {
-            var alpha = 30 - (index * 2);
-            var shadowRect = Rectangle.Inflate(surface, index * 3, index * 2);
-            shadowRect.Offset(0, 7 + index);
-            using var shadow = new SolidBrush(Color.FromArgb(Math.Max(3, alpha), 0, 0, 0));
+            var alpha = 24 - index;
+            var shadowRect = Rectangle.Inflate(surface, index * 4, index * 3);
+            shadowRect.Offset(0, 8 + index);
+            using var shadow = new SolidBrush(Color.FromArgb(Math.Max(2, alpha), 0, 0, 0));
             using var shadowPath = RoundedRect(shadowRect, Math.Max(18, surface.Height / 2) + index);
             graphics.FillPath(shadow, shadowPath);
         }

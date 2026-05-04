@@ -1,4 +1,5 @@
 using CoreDesk.Abstractions.Models;
+using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
 
 namespace CoreDesk_App;
@@ -7,9 +8,11 @@ public partial class App : Application
 {
     public static Window Window { get; private set; } = null!;
 
-    public static NativeDockHost? DockWindow { get; private set; }
+    public static DockOverlayWindow? DockWindow { get; private set; }
 
     public static StatusOverlayWindow? StatusWindow { get; private set; }
+
+    public static ShellViewModel ShellViewModel { get; private set; } = null!;
 
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
 
@@ -21,6 +24,7 @@ public partial class App : Application
     private static DispatcherTimer? _desktopLayerEnforcer;
     private static DispatcherTimer? _workAreaEnforcer;
     private static WindowsKeyHook? _windowsKeyHook;
+    private static Task? _shellInitializationTask;
     private static bool _homeExperienceReady;
 
     public App()
@@ -56,10 +60,11 @@ public partial class App : Application
             Services.SystemIntegration.Initialize();
             ApplyShellTaskbarPolicy();
             Services.SystemIntegration.CommandRequested += OnSystemCommandRequested;
+            ShellViewModel = Services.CreateShellViewModel();
             Window = new MainWindow();
             Window.Closed += (_, _) => RestoreSystemShell();
-            DockWindow = new NativeDockHost();
-            StatusWindow = new StatusOverlayWindow();
+            DockWindow = new DockOverlayWindow(ShellViewModel);
+            StatusWindow = new StatusOverlayWindow(ShellViewModel);
             Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             _windowsKeyHook = new WindowsKeyHook();
@@ -93,6 +98,30 @@ public partial class App : Application
         }
     }
 
+    public static Task EnsureShellReadyAsync()
+    {
+        if (ShellViewModel is null)
+        {
+            throw new InvalidOperationException("CoreDesk shell services are not initialized yet.");
+        }
+
+        _shellInitializationTask ??= InitializeShellAsync();
+        return _shellInitializationTask;
+    }
+
+    private static async Task InitializeShellAsync()
+    {
+        try
+        {
+            await ShellViewModel.InitializeAsync();
+        }
+        catch
+        {
+            _shellInitializationTask = null;
+            throw;
+        }
+    }
+
     public static void NotifyHomeExperienceReady(bool homeMode)
     {
         if (_homeExperienceReady)
@@ -102,7 +131,7 @@ public partial class App : Application
         }
 
         _homeExperienceReady = true;
-        Services.Diagnostics.Info("Home experience finished loading; starting native dock.");
+        Services.Diagnostics.Info("Home experience finished loading; showing in-process dock overlay.");
         ShowDockWhenReady(homeMode);
     }
 

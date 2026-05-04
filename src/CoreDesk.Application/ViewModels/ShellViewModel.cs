@@ -460,9 +460,16 @@ public sealed partial class ShellViewModel(
             return;
         }
 
-        await appLauncher.LaunchAsync(app);
-        diagnostics.Info($"Launched app: {app.Id}");
-        await RefreshRunningAppsAsync();
+        try
+        {
+            await appLauncher.LaunchAsync(app);
+            diagnostics.Info($"Launched app: {app.Id}");
+            await RefreshRunningAppsAsync();
+        }
+        catch (Exception exception)
+        {
+            diagnostics.Error(exception, $"Launching app '{app.DisplayName}' failed. Id={app.Id}; Kind={app.Kind}; Executable={app.ExecutablePath ?? "<none>"}; LaunchPath={app.LaunchPath ?? "<none>"}; AUMID={app.AppUserModelId ?? "<none>"}.");
+        }
     }
 
     [RelayCommand]

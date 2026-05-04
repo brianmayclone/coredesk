@@ -79,10 +79,10 @@
                             PointerExited="OnTilePointerReleased"
                             RenderTransformOrigin="0.5,0.5"
                             Translation="0,0,32"
-                            Background="#D9FFFFFF"
-                            BorderBrush="#44FFFFFF"
+                            Background="#F1FFFFFF"
+                            BorderBrush="#72FFFFFF"
                             BorderThickness="1"
-                            CornerRadius="30">
+                            CornerRadius="20">
                             <Border.Shadow>
                                 <ThemeShadow />
                             </Border.Shadow>
@@ -140,7 +140,7 @@
                                 HorizontalAlignment="Center"
                                 Translation="0,0,20"
                                 Background="{Binding IconPath, Converter={StaticResource IconPathToBrushConverter}}"
-                                CornerRadius="24"
+                                CornerRadius="22"
                                 Visibility="{Binding IsAppTile, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <Border.Shadow>
                                     <ThemeShadow />
@@ -164,7 +164,7 @@
                                 HorizontalAlignment="Center"
                                 Translation="0,0,20"
                                 Background="#DCF7F8FA"
-                                CornerRadius="24"
+                                CornerRadius="22"
                                 Visibility="{Binding IsFolderTile, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <Border.Shadow>
                                     <ThemeShadow />
@@ -178,7 +178,7 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="models:AppEntry">
-                                                <Border Width="38" Height="38" Margin="3" Background="{Binding IconPath, Converter={StaticResource IconPathToBrushConverter}}" CornerRadius="9">
+                                                <Border Width="38" Height="38" Margin="3" Background="{Binding IconPath, Converter={StaticResource IconPathToBrushConverter}}" CornerRadius="8">
                                                     <Grid>
                                                         <FontIcon Glyph="&#xECAA;" FontSize="17" Foreground="#EFFFFFFF" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
                                                         <Image Source="{Binding IconPath, Converter={StaticResource IconPathToImageSourceConverter}}" Margin="5" Stretch="Uniform" Visibility="{Binding IconPath, Converter={StaticResource IconPathToVisibilityConverter}}" />
@@ -201,7 +201,7 @@
                                     MaxLines="2"
                                     Foreground="#66000000"
                                     FontWeight="SemiBold"
-                                    FontSize="14" />
+                                    FontSize="13" />
                                 <TextBlock
                                     Margin="0,2,0,0"
                                     Text="{x:Bind DisplayName, Mode=OneWay}"
@@ -210,7 +210,7 @@
                                     MaxLines="2"
                                     Foreground="#33000000"
                                     FontWeight="SemiBold"
-                                    FontSize="14" />
+                                    FontSize="13" />
                                 <TextBlock
                                     Text="{x:Bind DisplayName, Mode=OneWay}"
                                     TextAlignment="Center"
@@ -218,7 +218,7 @@
                                     MaxLines="2"
                                     Foreground="White"
                                     FontWeight="SemiBold"
-                                    FontSize="14" />
+                                    FontSize="13" />
                             </Grid>
                         </StackPanel>
                     </DataTemplate>
@@ -782,6 +782,28 @@
                     </StackPanel>
                 </Grid>
             </Grid>
+        </Grid>
+
+        <Grid
+            x:Name="StartupErrorOverlay"
+            Visibility="Collapsed"
+            Background="#CC081018">
+            <Border
+                Width="680"
+                MaxWidth="720"
+                Padding="28"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#F5FFFFFF"
+                BorderBrush="#80FFFFFF"
+                BorderThickness="1"
+                CornerRadius="22">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="CoreDesk konnte den Homescreen nicht fertig laden" Foreground="#FF101820" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="StartupErrorMessage" Foreground="#CC101820" FontSize="15" TextWrapping="WrapWholeWords" />
+                    <TextBlock Text="Details wurden in den CoreDesk-Diagnostics-Log geschrieben." Foreground="#99101820" FontSize="13" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Page>

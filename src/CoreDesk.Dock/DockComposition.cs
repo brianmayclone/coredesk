@@ -29,7 +29,7 @@ public sealed class DockComposition : IDisposable
 
         var useMocks = options.MockHardware;
         AppDiscovery = useMocks ? new MockAppDiscoveryService() : new StartMenuAppDiscoveryService();
-        AppLauncher = useMocks ? new MockAppLauncher(Diagnostics) : new WindowsAppLauncher();
+        AppLauncher = useMocks ? new MockAppLauncher(Diagnostics) : new WindowsAppLauncher(Diagnostics);
         RunningApps = useMocks ? new MockRunningAppService() : new WindowsRunningAppService();
         Updates = useMocks ? new MockUpdateService() : new GitHubUpdateService(GetUpdateRepository(), Diagnostics);
         HardwareMonitor = useMocks ? new MockHardwareMonitor() : new PollingHardwareMonitor();

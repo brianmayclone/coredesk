@@ -2,6 +2,7 @@ using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Input;
+using System.Collections.Specialized;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 
@@ -18,18 +19,21 @@ public sealed partial class DockOverlayWindow : Window
     private double _gestureStartY;
     private Storyboard? _dockStoryboard;
 
-    public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
+    public ShellViewModel ViewModel { get; }
 
-    public DockOverlayWindow()
+    public DockOverlayWindow(ShellViewModel viewModel)
     {
+        ViewModel = viewModel;
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         Root.DataContext = ViewModel;
         Dock.SetViewModel(ViewModel);
         AppWindow.SetIcon("Assets/AppIcon.ico");
         ConfigureWindow();
+        ViewModel.PinnedDockItems.CollectionChanged += OnDockItemsChanged;
+        ViewModel.RunningDockItems.CollectionChanged += OnDockItemsChanged;
 
-        _autoHide.Interval = TimeSpan.FromSeconds(3);
+        _autoHide.Interval = TimeSpan.FromSeconds(5);
         _autoHide.Tick += (_, _) =>
         {
             _autoHide.Stop();
@@ -43,6 +47,8 @@ public sealed partial class DockOverlayWindow : Window
         {
             _autoHide.Stop();
             _foregroundMonitor.Stop();
+            ViewModel.PinnedDockItems.CollectionChanged -= OnDockItemsChanged;
+            ViewModel.RunningDockItems.CollectionChanged -= OnDockItemsChanged;
         };
     }
 
@@ -53,19 +59,26 @@ public sealed partial class DockOverlayWindow : Window
             return;
         }
 
+        await App.EnsureShellReadyAsync();
         _initialized = true;
-        await ViewModel.InitializeAsync();
         ViewModel.UpdateViewport(GetSystemMetrics(0), GetSystemMetrics(1));
     }
 
     public async void ShowDock(bool homeMode = false)
     {
-        _homeMode = homeMode;
-        await EnsureInitializedAsync();
-        PositionWindow();
-        Activate();
-        KeepTopMost();
-        RaiseDock();
+        try
+        {
+            _homeMode = homeMode;
+            await EnsureInitializedAsync();
+            PositionWindow();
+            AppWindow.Show(false);
+            KeepTopMost();
+            RaiseDock();
+        }
+        catch (Exception exception)
+        {
+            App.Services.Diagnostics.Error(exception, "Dock overlay failed to show.");
+        }
     }
 
     public void HideDock()
@@ -86,8 +99,9 @@ public sealed partial class DockOverlayWindow : Window
         }
 
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        SetPopupWindowStyle(handle);
         var style = GetWindowLongPtr(handle, GWL_EXSTYLE);
-        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
+        SetWindowLongPtr(handle, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE);
         EnableDwmBlur(handle);
         EnableWindowAcrylic(handle);
         SetRoundedWindowCorners(handle);
@@ -102,15 +116,45 @@ public sealed partial class DockOverlayWindow : Window
         var screenWidth = GetSystemMetrics(0);
         var screenHeight = GetSystemMetrics(1);
         ViewModel.UpdateViewport(screenWidth, screenHeight);
-        var dockItemCount = Math.Clamp(ViewModel.PinnedDockItems.Count, 1, 10)
-            + Math.Clamp(ViewModel.RunningDockItems.Count, 0, 7)
-            + 4;
-        var buttonSize = (int)Math.Round(ViewModel.DockButtonSize);
-        var requestedWidth = 36 + (dockItemCount * buttonSize) + Math.Max(0, dockItemCount - 1) * 10 + 18;
-        var width = Math.Clamp(requestedWidth, 520, Math.Min(1320, screenWidth - 220));
-        var height = Math.Clamp(buttonSize + 28, 104, 122);
+        var metrics = GetNativeDockMetrics();
+        var width = Math.Min(metrics.WindowWidth, screenWidth - (metrics.ScreenInset * 2));
+        var height = metrics.WindowHeight;
         AppWindow.MoveAndResize(new RectInt32((screenWidth - width) / 2, screenHeight - height - 22, width, height));
         ApplyRoundedWindowRegion(width, height);
+    }
+
+    private DockMetrics GetNativeDockMetrics()
+    {
+        var scale = Math.Clamp(GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96f, 1f, 2.5f);
+        var iconSlot = Scale(78, scale);
+        var itemGap = Scale(12, scale);
+        var sidePadding = Scale(22, scale);
+        var sideShadow = Scale(28, scale);
+        var itemCount = Math.Max(
+            1,
+            1
+            + Math.Clamp(ViewModel.PinnedDockItems.Count, 0, 8)
+            + Math.Clamp(ViewModel.RunningDockItems.Count, 0, 4));
+        var separatorWidth = ViewModel.RunningDockItems.Count > 0 ? Scale(18, scale) : 0;
+        var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap) + separatorWidth;
+        var dockWidth = contentWidth + (sidePadding * 2);
+        return new DockMetrics(
+            WindowWidth: dockWidth + (sideShadow * 2),
+            WindowHeight: Math.Max(Scale(132, scale), iconSlot + Scale(54, scale)),
+            ScreenInset: Scale(34, scale));
+    }
+
+    private static int Scale(int value, float scale) => Math.Max(1, (int)Math.Round(value * scale));
+
+    private void OnDockItemsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (!AppWindow.IsVisible)
+        {
+            return;
+        }
+
+        PositionWindow();
+        KeepTopMost();
     }
 
     private void RaiseDock()
@@ -327,6 +371,14 @@ public sealed partial class DockOverlayWindow : Window
         }
     }
 
+    private static void SetPopupWindowStyle(nint handle)
+    {
+        var style = GetWindowLongPtr(handle, GWL_STYLE);
+        style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+        style |= WS_POPUP;
+        SetWindowLongPtr(handle, GWL_STYLE, style);
+    }
+
     private static bool IsForegroundLargeNonCoreDeskWindow()
     {
         var foreground = GetForegroundWindow();
@@ -370,8 +422,16 @@ public sealed partial class DockOverlayWindow : Window
 
     private static readonly nint HWND_TOPMOST = new(-1);
     private const int GWL_EXSTYLE = -20;
+    private const int GWL_STYLE = -16;
+    private const int WS_POPUP = unchecked((int)0x80000000);
+    private const int WS_CAPTION = 0x00C00000;
+    private const int WS_THICKFRAME = 0x00040000;
+    private const int WS_MINIMIZEBOX = 0x00020000;
+    private const int WS_MAXIMIZEBOX = 0x00010000;
+    private const int WS_SYSMENU = 0x00080000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
@@ -394,6 +454,9 @@ public sealed partial class DockOverlayWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(nint hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
@@ -458,4 +521,6 @@ public sealed partial class DockOverlayWindow : Window
         public int Right;
         public int Bottom;
     }
+
+    private sealed record DockMetrics(int WindowWidth, int WindowHeight, int ScreenInset);
 }

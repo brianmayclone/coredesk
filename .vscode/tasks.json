@@ -5,8 +5,7 @@
             "label": "build CoreDesk Shell x64",
             "dependsOrder": "sequence",
             "dependsOn": [
-                "build CoreDesk App x64",
-                "build CoreDesk Dock x64"
+                "build CoreDesk App x64"
             ],
             "problemMatcher": []
         },
