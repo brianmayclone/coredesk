@@ -103,6 +103,7 @@
                 CanDragItems="True"
                 DragItemsStarting="OnAppDragItemsStarting"
                 DragOver="OnHomeGridDragOver"
+                DragLeave="OnHomeGridDragLeave"
                 Drop="OnHomeGridDrop"
                 Margin="0,22,0,24"
                 IsItemClickEnabled="True"

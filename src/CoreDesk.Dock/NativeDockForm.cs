@@ -14,7 +14,7 @@ public sealed class NativeDockForm : Form
     private readonly ShellViewModel _viewModel;
     private readonly IDiagnosticsService _diagnostics;
     private readonly int? _parentProcessId;
-    private readonly bool _homeMode;
+    private bool _homeMode;
     private readonly System.Windows.Forms.Timer _refreshTimer = new();
     private readonly System.Windows.Forms.Timer _visibilityTimer = new();
     private readonly System.Windows.Forms.Timer _animationTimer = new();
@@ -41,6 +41,7 @@ public sealed class NativeDockForm : Form
     private int _dropTargetIndex = -1;
     private string? _pressedVisualId;
     private DateTime _pressedVisualUntil = DateTime.MinValue;
+    private DateTime _lastTopMostRefresh = DateTime.MinValue;
 
     public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null, bool homeMode = false)
     {
@@ -62,11 +63,11 @@ public sealed class NativeDockForm : Form
 
         PositionDock();
 
-        _refreshTimer.Interval = 1200;
+        _refreshTimer.Interval = 10000;
         _refreshTimer.Tick += (_, _) => RefreshDock();
         _refreshTimer.Start();
 
-        _visibilityTimer.Interval = 250;
+        _visibilityTimer.Interval = 1000;
         _visibilityTimer.Tick += (_, _) => MonitorVisibility();
         _visibilityTimer.Start();
 
@@ -353,6 +354,8 @@ public sealed class NativeDockForm : Form
             if (_viewModel.OpenDockItemCommand.CanExecute(item))
             {
                 await _viewModel.OpenDockItemCommand.ExecuteAsync(item);
+                _homeMode = false;
+                _foregroundOverlapSince = DateTime.UtcNow;
             }
         }
         catch (Exception exception)
@@ -376,9 +379,22 @@ public sealed class NativeDockForm : Form
 
         if (_homeMode)
         {
-            _foregroundOverlapSince = null;
-            ForceVisible();
-            return;
+            if (IsForegroundLargeNonCoreDeskWindow())
+            {
+                _homeMode = false;
+                _foregroundOverlapSince = DateTime.UtcNow;
+            }
+            else
+            {
+                if (_isAutoHidden || !Visible || DateTime.UtcNow - _lastTopMostRefresh >= TimeSpan.FromSeconds(5))
+                {
+                    ForceVisible();
+                    _lastTopMostRefresh = DateTime.UtcNow;
+                }
+
+                _foregroundOverlapSince = null;
+                return;
+            }
         }
 
         var cursor = Cursor.Position;
@@ -405,8 +421,12 @@ public sealed class NativeDockForm : Form
         _foregroundOverlapSince = null;
         if (!_isAutoHidden)
         {
-            TopMost = true;
-            NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
+            if (DateTime.UtcNow - _lastTopMostRefresh >= TimeSpan.FromSeconds(2))
+            {
+                TopMost = true;
+                NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
+                _lastTopMostRefresh = DateTime.UtcNow;
+            }
         }
     }
 
@@ -456,6 +476,25 @@ public sealed class NativeDockForm : Form
         return windowRect.IntersectsWith(dockRect);
     }
 
+    private bool IsForegroundLargeNonCoreDeskWindow()
+    {
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (foreground == IntPtr.Zero || IsIgnoredWindow(foreground))
+        {
+            return false;
+        }
+
+        if (!NativeMethods.GetWindowRect(foreground, out var rect))
+        {
+            return false;
+        }
+
+        var screen = Screen.PrimaryScreen!.Bounds;
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        return width >= screen.Width * 0.7 && height >= screen.Height * 0.7;
+    }
+
     private bool IsIgnoredWindow(IntPtr handle)
     {
         if (handle == IntPtr.Zero || handle == Handle)
@@ -488,6 +527,7 @@ public sealed class NativeDockForm : Form
 
     private void HideWindowsForHome()
     {
+        _homeMode = true;
         _homeHiddenWindows.Clear();
         NativeMethods.EnumWindows((handle, lParam) =>
         {
@@ -518,6 +558,7 @@ public sealed class NativeDockForm : Form
 
     private void RestoreHomeHiddenWindows()
     {
+        _homeMode = false;
         foreach (var handle in _homeHiddenWindows.ToArray())
         {
             if (NativeMethods.IsWindow(handle))

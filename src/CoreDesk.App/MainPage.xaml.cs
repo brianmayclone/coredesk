@@ -4,6 +4,7 @@ using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.ComponentModel;
 using Windows.ApplicationModel.DataTransfer;
@@ -17,6 +18,9 @@ public sealed partial class MainPage : Page
     private readonly DispatcherTimer _dragPageSwitch = new();
     private Windows.Foundation.Point? _rootPointerStart;
     private int _pendingDragPageDirection;
+    private int _blockedDragPageDirection;
+    private int _lastPageIndex;
+    private int _pageAnimationDirection = 1;
     private bool _isDraggingHomeItem;
     private bool _createdPageDuringCurrentDrag;
 
@@ -26,6 +30,7 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         DataContext = ViewModel;
+        HomeGrid.RenderTransform = new TranslateTransform();
         Loaded += OnLoaded;
         AddHandler(PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnRootPointerReleased), true);
@@ -49,6 +54,7 @@ public sealed partial class MainPage : Page
     {
         Loaded -= OnLoaded;
         await ViewModel.InitializeAsync();
+        _lastPageIndex = ViewModel.CurrentPageIndex;
         ApplyWallpaper();
         Bindings.Update();
         App.NotifyHomeExperienceReady(homeMode: true);
@@ -120,7 +126,7 @@ public sealed partial class MainPage : Page
             e.Data.RequestedOperation = DataPackageOperation.Move;
             e.Data.Properties.Title = folderTile.Name;
             e.Data.SetText($"coredesk-folder:{folderTile.Folder.Id}");
-            _isDraggingHomeItem = true;
+            BeginHomeItemDrag();
             return;
         }
 
@@ -135,7 +141,7 @@ public sealed partial class MainPage : Page
         e.Data.RequestedOperation = DataPackageOperation.Move;
         e.Data.Properties.Title = app.DisplayName;
         e.Data.SetText($"coredesk-app:{app.Id}");
-        _isDraggingHomeItem = true;
+        BeginHomeItemDrag();
     }
 
     private void OnHomeTileDragStarting(UIElement sender, DragStartingEventArgs args)
@@ -152,7 +158,7 @@ public sealed partial class MainPage : Page
             args.Data.Properties.Title = app.DisplayName;
             args.Data.SetText($"coredesk-app:{app.Id}");
             TrySetDragBitmap(args, app.IconPath);
-            _isDraggingHomeItem = true;
+            BeginHomeItemDrag();
             return;
         }
 
@@ -161,7 +167,7 @@ public sealed partial class MainPage : Page
             args.Data.RequestedOperation = DataPackageOperation.Move;
             args.Data.Properties.Title = folder.Name;
             args.Data.SetText($"coredesk-folder:{folder.Folder.Id}");
-            _isDraggingHomeItem = true;
+            BeginHomeItemDrag();
             return;
         }
 
@@ -180,7 +186,7 @@ public sealed partial class MainPage : Page
         args.Data.Properties.Title = app.DisplayName;
         args.Data.SetText($"coredesk-app:{app.Id}");
         TrySetDragBitmap(args, app.IconPath);
-        _isDraggingHomeItem = true;
+        BeginHomeItemDrag();
     }
 
     private void OnWidgetDragStarting(UIElement sender, DragStartingEventArgs args)
@@ -201,6 +207,11 @@ public sealed partial class MainPage : Page
         e.AcceptedOperation = DataPackageOperation.Move;
         e.DragUIOverride.IsCaptionVisible = false;
         UpdateDragPageSwitch(e.GetPosition(HomeGrid));
+    }
+
+    private void OnHomeGridDragLeave(object sender, DragEventArgs e)
+    {
+        StopDragPageSwitch(resetDragState: true);
     }
 
     private async void OnHomeGridDrop(object sender, DragEventArgs e)
@@ -265,6 +276,13 @@ public sealed partial class MainPage : Page
 
         if (direction == 0)
         {
+            _blockedDragPageDirection = 0;
+            StopDragPageSwitch();
+            return;
+        }
+
+        if (direction == _blockedDragPageDirection)
+        {
             StopDragPageSwitch();
             return;
         }
@@ -276,6 +294,14 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private void BeginHomeItemDrag()
+    {
+        _isDraggingHomeItem = true;
+        _createdPageDuringCurrentDrag = false;
+        _blockedDragPageDirection = 0;
+        _pendingDragPageDirection = 0;
+    }
+
     private void OnDragPageSwitchTick(object? sender, object e)
     {
         if (!_isDraggingHomeItem || _pendingDragPageDirection == 0)
@@ -284,11 +310,14 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        _pageAnimationDirection = _pendingDragPageDirection;
         if (ViewModel.MoveToAdjacentPageForDrag(_pendingDragPageDirection, allowCreatePage: !_createdPageDuringCurrentDrag))
         {
             _createdPageDuringCurrentDrag = true;
         }
 
+        _blockedDragPageDirection = _pendingDragPageDirection;
+        StopDragPageSwitch();
         Bindings.Update();
     }
 
@@ -299,6 +328,7 @@ public sealed partial class MainPage : Page
         {
             _isDraggingHomeItem = false;
             _createdPageDuringCurrentDrag = false;
+            _blockedDragPageDirection = 0;
         }
 
         _dragPageSwitch.Stop();
@@ -355,10 +385,12 @@ public sealed partial class MainPage : Page
 
         if (deltaX < 0)
         {
+            _pageAnimationDirection = 1;
             ViewModel.NextPageCommand.Execute(null);
         }
         else
         {
+            _pageAnimationDirection = -1;
             ViewModel.PreviousPageCommand.Execute(null);
         }
 
@@ -397,10 +429,12 @@ public sealed partial class MainPage : Page
         var delta = e.GetCurrentPoint(Root).Properties.MouseWheelDelta;
         if (delta < 0)
         {
+            _pageAnimationDirection = 1;
             ViewModel.NextPageCommand.Execute(null);
         }
         else if (delta > 0)
         {
+            _pageAnimationDirection = -1;
             ViewModel.PreviousPageCommand.Execute(null);
         }
 
@@ -476,6 +510,11 @@ public sealed partial class MainPage : Page
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ViewModel.CurrentPageIndex))
+        {
+            AnimateHomePageTransition();
+        }
+
         if (e.PropertyName is nameof(ViewModel.IsControlCenterOpen) or nameof(ViewModel.IsTaskSwitcherOpen) or nameof(ViewModel.IsDrawerOpen) or nameof(ViewModel.IsSettingsOpen) or nameof(ViewModel.IsFolderOpen))
         {
             var isHomescreenOnly = !ViewModel.IsControlCenterOpen
@@ -487,6 +526,55 @@ public sealed partial class MainPage : Page
             App.ShowDockWhenReady(homeMode: isHomescreenOnly);
         }
 
+    }
+
+    private void AnimateHomePageTransition()
+    {
+        if (_lastPageIndex == ViewModel.CurrentPageIndex)
+        {
+            return;
+        }
+
+        var direction = ViewModel.CurrentPageIndex > _lastPageIndex ? 1 : -1;
+        if (_pageAnimationDirection != 0)
+        {
+            direction = _pageAnimationDirection;
+        }
+
+        _lastPageIndex = ViewModel.CurrentPageIndex;
+        var transform = HomeGrid.RenderTransform as TranslateTransform;
+        if (transform is null)
+        {
+            transform = new TranslateTransform();
+            HomeGrid.RenderTransform = transform;
+        }
+
+        var distance = Math.Clamp(HomeGrid.ActualWidth * 0.22, 180, 340) * direction;
+        transform.X = distance;
+        HomeGrid.Opacity = 0.7;
+
+        var storyboard = new Storyboard();
+        var slide = new DoubleAnimation
+        {
+            To = 0,
+            Duration = new Duration(TimeSpan.FromMilliseconds(280)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(slide, transform);
+        Storyboard.SetTargetProperty(slide, "X");
+
+        var fade = new DoubleAnimation
+        {
+            To = 1,
+            Duration = new Duration(TimeSpan.FromMilliseconds(220)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(fade, HomeGrid);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+
+        storyboard.Children.Add(slide);
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
     }
 
     private async void OnAppRefreshTick(object? sender, object e)

@@ -843,7 +843,9 @@ public sealed partial class ShellViewModel(
 
     private async Task RefreshRunningAppsAsync(CancellationToken cancellationToken = default)
     {
-        var runningApps = await runningAppService.GetRunningAppsAsync(cancellationToken);
+        var runningApps = (await runningAppService.GetRunningAppsAsync(cancellationToken))
+            .Where(running => !IsCoreDeskInternalProcess(running))
+            .ToList();
         var pinnedApps = AppsByIds(_layout.DockAppIds).Take(8).ToList();
         var runningIds = DockRunningAppMatcher.MatchRunningAppIds(runningApps, _allApps, pinnedApps);
         var pinnedIds = pinnedApps.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -899,5 +901,19 @@ public sealed partial class ShellViewModel(
             .Take(8)
             .ToList();
         _layout.DockAppIds = distinct;
+    }
+
+    private static bool IsCoreDeskInternalProcess(RunningAppEntry running)
+    {
+        if (running.ProcessName.StartsWith("CoreDesk.", StringComparison.OrdinalIgnoreCase)
+            || running.ProcessName.Equals("CoreDesk", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var executableName = Path.GetFileNameWithoutExtension(running.ExecutablePath);
+        return !string.IsNullOrWhiteSpace(executableName)
+            && (executableName.StartsWith("CoreDesk.", StringComparison.OrdinalIgnoreCase)
+                || executableName.Equals("CoreDesk", StringComparison.OrdinalIgnoreCase));
     }
 }
