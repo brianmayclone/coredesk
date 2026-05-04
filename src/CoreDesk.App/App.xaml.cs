@@ -8,7 +8,7 @@ public partial class App : Application
 {
     public static Window Window { get; private set; } = null!;
 
-    public static DockOverlayWindow? DockWindow { get; private set; }
+    public static CompositionDockHost? DockWindow { get; private set; }
 
     public static StatusOverlayWindow? StatusWindow { get; private set; }
 
@@ -63,7 +63,7 @@ public partial class App : Application
             ShellViewModel = Services.CreateShellViewModel();
             Window = new MainWindow();
             Window.Closed += (_, _) => RestoreSystemShell();
-            DockWindow = new DockOverlayWindow(ShellViewModel);
+            DockWindow = new CompositionDockHost(ShellViewModel);
             StatusWindow = new StatusOverlayWindow(ShellViewModel);
             Services.ShellMode.ModeChanged += OnShellModeChanged;
             DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();

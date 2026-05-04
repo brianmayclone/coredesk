@@ -15,7 +15,6 @@
             <converters:IconPathToImageSourceConverter x:Key="IconPathToImageSourceConverter" />
             <converters:IconPathToBrushConverter x:Key="IconPathToBrushConverter" />
             <converters:IconPathToVisibilityConverter x:Key="IconPathToVisibilityConverter" />
-            <converters:CountToVisibilityConverter x:Key="CountToVisibilityConverter" />
             <converters:AppNameToBrushConverter x:Key="AppNameToBrushConverter" />
             <converters:DoubleToUniformThicknessConverter x:Key="DoubleToUniformThicknessConverter" />
         </ResourceDictionary>

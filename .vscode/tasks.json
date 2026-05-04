@@ -23,17 +23,6 @@
                 "kind": "build",
                 "isDefault": true
             }
-        },
-        {
-            "label": "build CoreDesk Dock x64",
-            "type": "process",
-            "command": "C:\\Program Files\\dotnet\\dotnet.exe",
-            "args": [
-                "build",
-                "${workspaceFolder}\\src\\CoreDesk.Dock\\CoreDesk.Dock.csproj",
-                "-p:Platform=x64"
-            ],
-            "problemMatcher": "$msCompile"
         }
     ]
 }
