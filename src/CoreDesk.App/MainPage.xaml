@@ -14,6 +14,9 @@
         x:Name="Root"
         AutomationProperties.Name="CoreDesk Homescreen"
         Background="Transparent"
+        PointerPressed="OnRootPointerPressed"
+        PointerReleased="OnRootPointerReleased"
+        PointerWheelChanged="OnRootPointerWheelChanged"
         SizeChanged="OnRootSizeChanged">
         <Grid>
             <Grid.Background>
@@ -68,7 +71,11 @@
             </Grid>
 
             <ItemsControl
+                x:Name="WidgetsStrip"
                 Grid.Row="1"
+                AllowDrop="True"
+                DragOver="OnWidgetDragOver"
+                Drop="OnWidgetDrop"
                 Margin="0,28,0,8"
                 ItemsSource="{x:Bind ViewModel.Widgets, Mode=OneWay}">
                 <ItemsControl.ItemsPanel>
@@ -82,6 +89,12 @@
                             Width="380"
                             Height="132"
                             Padding="24,20"
+                            CanDrag="True"
+                            DragStarting="OnWidgetDragStarting"
+                            PointerPressed="OnTilePointerPressed"
+                            PointerReleased="OnTilePointerReleased"
+                            PointerExited="OnTilePointerReleased"
+                            RenderTransformOrigin="0.5,0.5"
                             Background="#D9FFFFFF"
                             BorderBrush="#44FFFFFF"
                             BorderThickness="1"
@@ -99,8 +112,11 @@
             <GridView
                 x:Name="HomeGrid"
                 Grid.Row="2"
+                AllowDrop="True"
                 CanDragItems="True"
                 DragItemsStarting="OnAppDragItemsStarting"
+                DragOver="OnHomeGridDragOver"
+                Drop="OnHomeGridDrop"
                 Margin="0,22,0,24"
                 IsItemClickEnabled="True"
                 ItemClick="OnAppItemClick"

@@ -14,6 +14,7 @@ public sealed partial class MainPage : Page
 {
     private readonly DispatcherTimer _clock = new();
     private readonly DispatcherTimer _appRefresh = new();
+    private Windows.Foundation.Point? _rootPointerStart;
 
     public ShellViewModel ViewModel { get; } = App.Services.CreateShellViewModel();
 
@@ -114,6 +115,118 @@ public sealed partial class MainPage : Page
         e.Data.RequestedOperation = DataPackageOperation.Move;
         e.Data.Properties.Title = app.DisplayName;
         e.Data.SetText($"coredesk-app:{app.Id}");
+    }
+
+    private void OnWidgetDragStarting(UIElement sender, DragStartingEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not HomeWidgetViewModel widget)
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        args.Data.RequestedOperation = DataPackageOperation.Move;
+        args.Data.Properties.Title = widget.Title;
+        args.Data.SetText($"coredesk-widget:{widget.Widget.Id}");
+    }
+
+    private void OnHomeGridDragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = DataPackageOperation.Move;
+        e.DragUIOverride.IsCaptionVisible = false;
+    }
+
+    private async void OnHomeGridDrop(object sender, DragEventArgs e)
+    {
+        var text = await e.DataView.GetTextAsync();
+        const string prefix = "coredesk-app:";
+        if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var point = e.GetPosition(HomeGrid);
+        var targetIndex = GetHomeTileTargetIndex(point);
+        await ViewModel.MoveHomeAppAsync(text[prefix.Length..], targetIndex);
+        Bindings.Update();
+    }
+
+    private void OnWidgetDragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = DataPackageOperation.Move;
+        e.DragUIOverride.IsCaptionVisible = false;
+    }
+
+    private async void OnWidgetDrop(object sender, DragEventArgs e)
+    {
+        var text = await e.DataView.GetTextAsync();
+        const string prefix = "coredesk-widget:";
+        if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var point = e.GetPosition(WidgetsStrip);
+        var targetIndex = Math.Clamp((int)Math.Round(point.X / 398d), 0, ViewModel.Widgets.Count);
+        await ViewModel.MoveWidgetAsync(text[prefix.Length..], targetIndex);
+        Bindings.Update();
+    }
+
+    private static int GetHomeTileTargetIndex(Windows.Foundation.Point point)
+    {
+        const double tileWidth = 150;
+        const double tileHeight = 174;
+        var column = Math.Max(0, (int)Math.Floor(point.X / tileWidth));
+        var row = Math.Clamp((int)Math.Floor(point.Y / tileHeight), 0, 7);
+        return (column * 8) + row;
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _rootPointerStart = e.GetCurrentPoint(Root).Position;
+    }
+
+    private void OnRootPointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_rootPointerStart is null)
+        {
+            return;
+        }
+
+        var end = e.GetCurrentPoint(Root).Position;
+        var deltaX = end.X - _rootPointerStart.Value.X;
+        var deltaY = end.Y - _rootPointerStart.Value.Y;
+        _rootPointerStart = null;
+        if (Math.Abs(deltaX) < 90 || Math.Abs(deltaX) < Math.Abs(deltaY) * 1.3)
+        {
+            return;
+        }
+
+        if (deltaX < 0)
+        {
+            ViewModel.NextPageCommand.Execute(null);
+        }
+        else
+        {
+            ViewModel.PreviousPageCommand.Execute(null);
+        }
+
+        Bindings.Update();
+    }
+
+    private void OnRootPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        var delta = e.GetCurrentPoint(Root).Properties.MouseWheelDelta;
+        if (delta < 0)
+        {
+            ViewModel.NextPageCommand.Execute(null);
+        }
+        else if (delta > 0)
+        {
+            ViewModel.PreviousPageCommand.Execute(null);
+        }
+
+        Bindings.Update();
     }
 
     private void OnTilePointerPressed(object sender, PointerRoutedEventArgs e)

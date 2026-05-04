@@ -439,6 +439,62 @@ public sealed partial class ShellViewModel(
         diagnostics.Info($"Moved dock app '{appId}' to index {targetIndex}.");
     }
 
+    public async Task MoveHomeAppAsync(string appId, int targetIndex, CancellationToken cancellationToken = default)
+    {
+        if (!_allApps.Any(app => app.Id.Equals(appId, StringComparison.OrdinalIgnoreCase)))
+        {
+            diagnostics.Info($"Home move ignored; app '{appId}' was not found.");
+            return;
+        }
+
+        var page = _layout.Pages.FirstOrDefault(candidate => candidate.Index == CurrentPageIndex);
+        if (page is null)
+        {
+            page = new HomePage { Index = CurrentPageIndex };
+            _layout.Pages.Add(page);
+        }
+
+        foreach (var candidate in _layout.Pages)
+        {
+            candidate.Tiles.RemoveAll(tile => tile.AppId.Equals(appId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var index = Math.Clamp(targetIndex, 0, Math.Max(0, page.Tiles.Count));
+        page.Tiles.Insert(index, new HomeTile
+        {
+            AppId = appId,
+            Column = index % 8,
+            Row = index / 8
+        });
+        NormalizePageTiles(page);
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        RefreshHomeTiles();
+        diagnostics.Info($"Moved home app '{appId}' to page {CurrentPageIndex}, index {index}.");
+    }
+
+    public async Task MoveWidgetAsync(string widgetId, int targetIndex, CancellationToken cancellationToken = default)
+    {
+        var widget = _layout.Widgets.FirstOrDefault(candidate => candidate.Id.Equals(widgetId, StringComparison.OrdinalIgnoreCase));
+        if (widget is null)
+        {
+            diagnostics.Info($"Widget move ignored; widget '{widgetId}' was not found.");
+            return;
+        }
+
+        _layout.Widgets.Remove(widget);
+        var index = Math.Clamp(targetIndex, 0, _layout.Widgets.Count);
+        _layout.Widgets.Insert(index, widget);
+        for (var widgetIndex = 0; widgetIndex < _layout.Widgets.Count; widgetIndex++)
+        {
+            _layout.Widgets[widgetIndex].Column = widgetIndex * 2;
+            _layout.Widgets[widgetIndex].Row = 0;
+        }
+
+        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        RefreshWidgets();
+        diagnostics.Info($"Moved widget '{widgetId}' to index {index}.");
+    }
+
     public bool HasApp(string appId)
     {
         return _allApps.Any(app => app.Id.Equals(appId, StringComparison.OrdinalIgnoreCase));
@@ -546,6 +602,26 @@ public sealed partial class ShellViewModel(
             {
                 HomeTiles.Add(new HomeTileViewModel(null, folder));
             }
+        }
+    }
+
+    private void RefreshWidgets()
+    {
+        Widgets.Clear();
+        foreach (var widget in _layout.Widgets.OrderBy(widget => widget.Row).ThenBy(widget => widget.Column))
+        {
+            Widgets.Add(widget.Kind.Equals("clock", StringComparison.OrdinalIgnoreCase)
+                ? new HomeWidgetViewModel(widget, DateTime.Now.ToString("HH:mm"), DateTime.Now.ToString("dddd, MMM d"))
+                : new HomeWidgetViewModel(widget, BatteryLabel, $"{NetworkLabel} · {KeyboardLabel}"));
+        }
+    }
+
+    private static void NormalizePageTiles(HomePage page)
+    {
+        for (var index = 0; index < page.Tiles.Count; index++)
+        {
+            page.Tiles[index].Column = index % 8;
+            page.Tiles[index].Row = index / 8;
         }
     }
 
