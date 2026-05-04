@@ -282,6 +282,11 @@ public partial class App : Application
         Window.AppWindow.Show(true);
         Window.Activate();
         mainWindow.UseFullScreenShell();
+        if (openDrawer || openSettings || openTaskSwitcher)
+        {
+            mainWindow.BringShellForward();
+        }
+
         ShowStatusAndReserveWorkArea(homeMode: !openDrawer && !openSettings && !openControlCenter && !openTaskSwitcher);
         if (openDrawer)
         {
@@ -306,6 +311,15 @@ public partial class App : Application
         else if (openTaskSwitcher)
         {
             mainWindow.OpenTaskSwitcher();
+        }
+    }
+
+    public static void RestoreMainShellLayerIfNeeded()
+    {
+        if (Services.ShellMode.CurrentMode == ShellMode.Desktop && Window is MainWindow mainWindow)
+        {
+            mainWindow.ConfigureAsDesktopLayer();
+            KeepHomescreenBehindWindows();
         }
     }
 

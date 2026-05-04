@@ -36,11 +36,13 @@ public sealed partial class MainWindow : Window
 
     public void OpenSettings()
     {
+        BringShellForward();
         _mainPage?.OpenSettings();
     }
 
     public void OpenDrawer()
     {
+        BringShellForward();
         _mainPage?.OpenDrawer();
     }
 
@@ -51,6 +53,7 @@ public sealed partial class MainWindow : Window
 
     public void OpenTaskSwitcher()
     {
+        BringShellForward();
         _mainPage?.OpenTaskSwitcher();
     }
 

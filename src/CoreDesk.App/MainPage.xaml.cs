@@ -865,6 +865,11 @@ public sealed partial class MainPage : Page
             {
                 App.ShowDockWhenReady(homeMode: isHomescreenOnly);
             }
+
+            if (isHomescreenOnly)
+            {
+                App.RestoreMainShellLayerIfNeeded();
+            }
         }
 
     }
