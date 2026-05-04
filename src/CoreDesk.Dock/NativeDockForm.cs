@@ -3,6 +3,7 @@ using CoreDesk.Abstractions.Services;
 using CoreDesk.Application.ViewModels;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -18,8 +19,13 @@ public sealed class NativeDockForm : Form
     private readonly System.Windows.Forms.Timer _animationTimer = new();
     private readonly Dictionary<string, Image> _iconCache = [];
     private readonly List<DockHitTarget> _hitTargets = [];
+    private readonly List<IntPtr> _homeHiddenWindows = [];
+    private Bitmap? _blurredBackdrop;
+    private Rectangle _blurredBackdropSurface;
+    private DateTime _blurredBackdropCapturedAt = DateTime.MinValue;
     private bool _initialized;
     private bool _initializing;
+    private bool _isCapturingBackdrop;
     private bool _isAutoHidden;
     private bool _isAnimating;
     private int _visibleTop;
@@ -29,6 +35,11 @@ public sealed class NativeDockForm : Form
     private DockHitTarget? _pressedTarget;
     private Point _mouseDownLocation;
     private bool _dragStarted;
+    private bool _windowsHiddenByHome;
+    private bool _isDragHoveringDock;
+    private int _dropTargetIndex = -1;
+    private string? _pressedVisualId;
+    private DateTime _pressedVisualUntil = DateTime.MinValue;
 
     public NativeDockForm(ShellViewModel viewModel, IDiagnosticsService diagnostics, int? parentProcessId = null)
     {
@@ -116,7 +127,6 @@ public sealed class NativeDockForm : Form
     private void ConfigureWindow()
     {
         PositionDock();
-        ConfigureDwmBackdrop(Handle);
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
         Invalidate();
     }
@@ -207,6 +217,9 @@ public sealed class NativeDockForm : Form
 
             _pressedTarget = target;
             _mouseDownLocation = e.Location;
+            _pressedVisualId = target.IsHome ? HomeDockItem.App.Id : target.Item.App.Id;
+            _pressedVisualUntil = DateTime.UtcNow.AddMilliseconds(220);
+            Invalidate();
             return;
         }
     }
@@ -215,6 +228,11 @@ public sealed class NativeDockForm : Form
     {
         base.OnMouseMove(e);
         if (_pressedTarget is null || _dragStarted || e.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        if (_pressedTarget.IsHome)
         {
             return;
         }
@@ -248,16 +266,28 @@ public sealed class NativeDockForm : Form
         _pressedTarget = null;
         if (!_dragStarted && target.Bounds.Contains(e.Location))
         {
-            _ = OpenDockItemAsync(target.Item);
+            if (target.IsHome)
+            {
+                ToggleHomeWindows();
+            }
+            else
+            {
+                _ = OpenDockItemAsync(target.Item);
+            }
         }
 
         _dragStarted = false;
+        Invalidate();
     }
 
     protected override void OnDragEnter(DragEventArgs drgevent)
     {
         base.OnDragEnter(drgevent);
         drgevent.Effect = TryGetDraggedAppId(drgevent.Data, out _) ? DragDropEffects.Move : DragDropEffects.None;
+        _isDragHoveringDock = drgevent.Effect != DragDropEffects.None;
+        _dropTargetIndex = _isDragHoveringDock ? GetDockTargetIndex(PointToClient(new Point(drgevent.X, drgevent.Y))) : -1;
+        PositionDock();
+        Invalidate();
         ShowDockAnimated();
     }
 
@@ -265,6 +295,25 @@ public sealed class NativeDockForm : Form
     {
         base.OnDragOver(drgevent);
         drgevent.Effect = TryGetDraggedAppId(drgevent.Data, out _) ? DragDropEffects.Move : DragDropEffects.None;
+        var nextIndex = drgevent.Effect == DragDropEffects.None
+            ? -1
+            : GetDockTargetIndex(PointToClient(new Point(drgevent.X, drgevent.Y)));
+        if (_dropTargetIndex != nextIndex || _isDragHoveringDock != (drgevent.Effect != DragDropEffects.None))
+        {
+            _isDragHoveringDock = drgevent.Effect != DragDropEffects.None;
+            _dropTargetIndex = nextIndex;
+            PositionDock();
+            Invalidate();
+        }
+    }
+
+    protected override void OnDragLeave(EventArgs e)
+    {
+        base.OnDragLeave(e);
+        _isDragHoveringDock = false;
+        _dropTargetIndex = -1;
+        PositionDock();
+        Invalidate();
     }
 
     protected override async void OnDragDrop(DragEventArgs drgevent)
@@ -280,11 +329,15 @@ public sealed class NativeDockForm : Form
         try
         {
             await _viewModel.MoveDockItemAsync(appId, targetIndex);
+            _isDragHoveringDock = false;
+            _dropTargetIndex = -1;
             PositionDock();
             Invalidate();
         }
         catch (Exception exception)
         {
+            _isDragHoveringDock = false;
+            _dropTargetIndex = -1;
             _diagnostics.Error(exception, $"Dock drop failed for app '{appId}'.");
         }
     }
@@ -321,14 +374,15 @@ public sealed class NativeDockForm : Form
 
         var cursor = Cursor.Position;
         var screen = Screen.PrimaryScreen!.Bounds;
-        if (_isAutoHidden && cursor.Y >= screen.Bottom - Scale(4, GetMetrics().DpiScale))
+        var hasWindowUnderDock = IsAnyWindowUnderDock();
+        if (_isAutoHidden && (!hasWindowUnderDock || cursor.Y >= screen.Bottom - Scale(4, GetMetrics().DpiScale)))
         {
             ShowDockAnimated();
             _foregroundOverlapSince = null;
             return;
         }
 
-        if (!_isAutoHidden && IsForegroundWindowUnderDock())
+        if (!_isAutoHidden && hasWindowUnderDock)
         {
             _foregroundOverlapSince ??= DateTime.UtcNow;
             if (DateTime.UtcNow - _foregroundOverlapSince.Value >= TimeSpan.FromSeconds(5))
@@ -347,16 +401,38 @@ public sealed class NativeDockForm : Form
         }
     }
 
+    private bool IsAnyWindowUnderDock()
+    {
+        var dockRect = new Rectangle(Left, _visibleTop, Width, Height);
+        var found = false;
+        NativeMethods.EnumWindows((handle, lParam) =>
+        {
+            if (IsIgnoredWindow(handle) || !NativeMethods.IsWindowVisible(handle) || NativeMethods.IsIconic(handle))
+            {
+                return true;
+            }
+
+            if (!NativeMethods.GetWindowRect(handle, out var rect))
+            {
+                return true;
+            }
+
+            var windowRect = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            if (!windowRect.IntersectsWith(dockRect))
+            {
+                return true;
+            }
+
+            found = true;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
     private bool IsForegroundWindowUnderDock()
     {
         var foreground = NativeMethods.GetForegroundWindow();
-        if (foreground == IntPtr.Zero || foreground == Handle)
-        {
-            return false;
-        }
-
-        NativeMethods.GetWindowThreadProcessId(foreground, out var processId);
-        if (processId == (uint)Environment.ProcessId || (_parentProcessId is not null && processId == (uint)_parentProcessId.Value))
+        if (foreground == IntPtr.Zero || IsIgnoredWindow(foreground))
         {
             return false;
         }
@@ -369,6 +445,107 @@ public sealed class NativeDockForm : Form
         var windowRect = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
         var dockRect = new Rectangle(Left, _visibleTop, Width, Height);
         return windowRect.IntersectsWith(dockRect);
+    }
+
+    private bool IsIgnoredWindow(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero || handle == Handle)
+        {
+            return true;
+        }
+
+        NativeMethods.GetWindowThreadProcessId(handle, out var processId);
+        return processId == (uint)Environment.ProcessId
+            || (_parentProcessId is not null && processId == (uint)_parentProcessId.Value);
+    }
+
+    private void ToggleHomeWindows()
+    {
+        try
+        {
+            if (_windowsHiddenByHome)
+            {
+                RestoreHomeHiddenWindows();
+                return;
+            }
+
+            HideWindowsForHome();
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.Error(exception, "Home dock action failed.");
+        }
+    }
+
+    private void HideWindowsForHome()
+    {
+        _homeHiddenWindows.Clear();
+        NativeMethods.EnumWindows((handle, lParam) =>
+        {
+            if (IsIgnoredWindow(handle) || !NativeMethods.IsWindowVisible(handle) || NativeMethods.IsIconic(handle))
+            {
+                return true;
+            }
+
+            if (!NativeMethods.GetWindowRect(handle, out var rect))
+            {
+                return true;
+            }
+
+            if (rect.Right <= rect.Left || rect.Bottom <= rect.Top)
+            {
+                return true;
+            }
+
+            _homeHiddenWindows.Add(handle);
+            NativeMethods.ShowWindowAsync(handle, SW_MINIMIZE);
+            return true;
+        }, IntPtr.Zero);
+
+        _windowsHiddenByHome = _homeHiddenWindows.Count > 0;
+        ActivateParentWindow();
+        ForceVisible();
+    }
+
+    private void RestoreHomeHiddenWindows()
+    {
+        foreach (var handle in _homeHiddenWindows.ToArray())
+        {
+            if (NativeMethods.IsWindow(handle))
+            {
+                NativeMethods.ShowWindowAsync(handle, SW_RESTORE);
+            }
+        }
+
+        _homeHiddenWindows.Clear();
+        _windowsHiddenByHome = false;
+        ForceVisible();
+    }
+
+    private void ActivateParentWindow()
+    {
+        if (_parentProcessId is null)
+        {
+            return;
+        }
+
+        var parentWindow = IntPtr.Zero;
+        NativeMethods.EnumWindows((handle, lParam) =>
+        {
+            NativeMethods.GetWindowThreadProcessId(handle, out var processId);
+            if (processId == (uint)_parentProcessId.Value && NativeMethods.IsWindowVisible(handle))
+            {
+                parentWindow = handle;
+                return false;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        if (parentWindow != IntPtr.Zero)
+        {
+            _ = NativeMethods.SetForegroundWindow(parentWindow);
+        }
     }
 
     private void HideDockAnimated()
@@ -424,6 +601,13 @@ public sealed class NativeDockForm : Form
         NativeMethods.SetWindowPos(Handle, HWND_TOPMOST, Left, Top, Width, Height, SWP_SHOWWINDOW);
     }
 
+    private bool IsPressedVisual(DockHitTarget target)
+    {
+        return _pressedVisualId is not null
+            && DateTime.UtcNow <= _pressedVisualUntil
+            && _pressedVisualId.Equals(target.Item.App.Id, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool TryGetDraggedAppId(IDataObject? data, out string appId)
     {
         appId = string.Empty;
@@ -446,9 +630,11 @@ public sealed class NativeDockForm : Form
     private int GetDockTargetIndex(Point point)
     {
         var metrics = GetMetrics();
-        var visualCount = Math.Min(metrics.VisualItemCount, 8);
+        var visualCount = Math.Min(Math.Max(0, metrics.VisualItemCount - 1 - (_isDragHoveringDock ? 1 : 0)), 8);
         var contentWidth = (visualCount * metrics.IconSlot) + (Math.Max(0, visualCount - 1) * metrics.ItemGap);
-        var x = (Width - contentWidth) / 2;
+        var x = ((Width - ((metrics.VisualItemCount * metrics.IconSlot) + (Math.Max(0, metrics.VisualItemCount - 1) * metrics.ItemGap))) / 2)
+            + metrics.IconSlot
+            + metrics.ItemGap;
         for (var index = 0; index < visualCount; index++)
         {
             if (point.X < x + (metrics.IconSlot / 2))
@@ -476,16 +662,17 @@ public sealed class NativeDockForm : Form
         var dockSurface = new Rectangle(metrics.SideShadow, metrics.TopShadow, Width - (metrics.SideShadow * 2), metrics.DockHeight);
         using var path = RoundedRect(dockSurface, metrics.CornerRadius);
         DrawSoftShadow(graphics, dockSurface);
+        DrawBlurredBackdrop(graphics, dockSurface, path, metrics);
 
         using var glass = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(172, 74, 36, 52),
-            Color.FromArgb(138, 36, 18, 28),
+            Color.FromArgb(118, 72, 35, 52),
+            Color.FromArgb(92, 28, 18, 30),
             90f);
         using var sheen = new LinearGradientBrush(
             dockSurface,
-            Color.FromArgb(112, 255, 255, 255),
-            Color.FromArgb(8, 255, 255, 255),
+            Color.FromArgb(132, 255, 255, 255),
+            Color.FromArgb(18, 255, 255, 255),
             90f);
         using var stroke = new Pen(Color.FromArgb(92, 255, 255, 255), Math.Max(1f, metrics.DpiScale));
 
@@ -501,37 +688,54 @@ public sealed class NativeDockForm : Form
         var contentWidth = (itemCount * metrics.IconSlot) + (Math.Max(0, itemCount - 1) * metrics.ItemGap);
         var x = (Width - contentWidth) / 2;
         var y = dockSurface.Top + ((dockSurface.Height - metrics.IconSlot) / 2);
-        if (!_initialized || _viewModel.PinnedDockItems.Count == 0)
+        DrawHomeItem(graphics, metrics, ref x, y);
+
+        if (!_initialized)
         {
             DrawFallbackItems(graphics, metrics, ref x, y, interactive: true);
             return;
         }
 
-        var drawnCount = DrawItems(graphics, _viewModel.PinnedDockItems, metrics, ref x, y, pinned: true);
+        var appIndex = 0;
+        DrawDropSlotIfNeeded(graphics, metrics, ref x, y, appIndex);
+        var drawnCount = DrawItems(graphics, _viewModel.PinnedDockItems, metrics, ref x, y, pinned: true, ref appIndex);
 
         if (_viewModel.RunningDockItems.Count > 0)
         {
+            DrawDropSlotIfNeeded(graphics, metrics, ref x, y, appIndex);
             x += metrics.SeparatorGap;
         }
 
-        drawnCount += DrawItems(graphics, _viewModel.RunningDockItems, metrics, ref x, y, pinned: false);
+        drawnCount += DrawItems(graphics, _viewModel.RunningDockItems, metrics, ref x, y, pinned: false, ref appIndex);
+        DrawDropSlotIfNeeded(graphics, metrics, ref x, y, appIndex);
 
-        var missingCount = Math.Max(0, metrics.VisualItemCount - drawnCount);
-        if (missingCount > 0)
+        if (_parentProcessId is null && _viewModel.PinnedDockItems.Count == 0)
         {
-            DrawFallbackItems(graphics, metrics, ref x, y, interactive: false, skip: drawnCount, take: missingCount);
+            DrawFallbackItems(graphics, metrics, ref x, y, interactive: true);
         }
     }
 
     private int GetDockItemCount()
     {
-        if (!_initialized || _viewModel.PinnedDockItems.Count == 0)
+        if (!_initialized)
         {
-            return 8;
+            return 9;
         }
 
-        return Math.Clamp(_viewModel.PinnedDockItems.Count, 1, 8)
+        var realItemCount = 1
+            + Math.Clamp(_viewModel.PinnedDockItems.Count, 0, 8)
             + Math.Clamp(_viewModel.RunningDockItems.Count, 0, 4);
+        if (_isDragHoveringDock)
+        {
+            realItemCount++;
+        }
+
+        if (_parentProcessId is null && _viewModel.PinnedDockItems.Count == 0)
+        {
+            realItemCount += 8;
+        }
+
+        return realItemCount;
     }
 
     private DockMetrics GetMetrics()
@@ -541,7 +745,7 @@ public sealed class NativeDockForm : Form
         var iconSize = Scale(72, scale);
         var itemGap = Scale(13, scale);
         var sidePadding = Scale(26, scale);
-        var itemCount = Math.Max(8, GetDockItemCount());
+        var itemCount = Math.Max(1, GetDockItemCount());
         var contentWidth = (itemCount * iconSlot) + (Math.Max(0, itemCount - 1) * itemGap);
         var dockWidth = contentWidth + (sidePadding * 2);
         var sideShadow = Scale(17, scale);
@@ -567,6 +771,238 @@ public sealed class NativeDockForm : Form
     }
 
     private static int Scale(int value, float scale) => Math.Max(1, (int)Math.Round(value * scale));
+
+    private void DrawHomeItem(Graphics graphics, DockMetrics metrics, ref int x, int y)
+    {
+        var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
+        var target = new DockHitTarget(bounds, HomeDockItem, _hitTargets.Count, IsHome: true);
+        DrawHomeIcon(graphics, ApplyPressedVisual(graphics, Centered(bounds, metrics.IconSize), metrics, IsPressedVisual(target)), metrics);
+        _hitTargets.Add(target);
+        x += metrics.IconSlot + metrics.ItemGap;
+    }
+
+    private void DrawDropSlotIfNeeded(Graphics graphics, DockMetrics metrics, ref int x, int y, int appIndex)
+    {
+        if (!_isDragHoveringDock || _dropTargetIndex != appIndex)
+        {
+            return;
+        }
+
+        var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
+        var slot = Centered(bounds, metrics.IconSize);
+        using var path = RoundedRect(slot, Math.Max(12, slot.Width / 5));
+        using var fill = new SolidBrush(Color.FromArgb(70, 255, 255, 255));
+        using var stroke = new Pen(Color.FromArgb(150, 255, 255, 255), Math.Max(1f, metrics.DpiScale))
+        {
+            DashStyle = DashStyle.Dash
+        };
+        graphics.FillPath(fill, path);
+        graphics.DrawPath(stroke, path);
+        x += metrics.IconSlot + metrics.ItemGap;
+    }
+
+    private void DrawBlurredBackdrop(Graphics graphics, Rectangle dockSurface, GraphicsPath clipPath, DockMetrics metrics)
+    {
+        if (_isCapturingBackdrop)
+        {
+            return;
+        }
+
+        var shouldRefresh = _blurredBackdrop is null
+            || _blurredBackdropSurface != dockSurface
+            || DateTime.UtcNow - _blurredBackdropCapturedAt > TimeSpan.FromMilliseconds(_isAutoHidden ? 800 : 260);
+        if (shouldRefresh)
+        {
+            CaptureBlurredBackdrop(dockSurface, metrics);
+        }
+
+        if (_blurredBackdrop is null)
+        {
+            return;
+        }
+
+        var previousClip = graphics.Clip;
+        graphics.SetClip(clipPath, CombineMode.Replace);
+        using var attributes = new ImageAttributes();
+        var alpha = _isAutoHidden ? 0.62f : 0.88f;
+        attributes.SetColorMatrix(new ColorMatrix
+        {
+            Matrix00 = 1f,
+            Matrix11 = 1f,
+            Matrix22 = 1f,
+            Matrix33 = alpha,
+            Matrix44 = 1f
+        });
+        graphics.DrawImage(
+            _blurredBackdrop,
+            dockSurface,
+            0,
+            0,
+            _blurredBackdrop.Width,
+            _blurredBackdrop.Height,
+            GraphicsUnit.Pixel,
+            attributes);
+
+        using var wash = new LinearGradientBrush(
+            dockSurface,
+            Color.FromArgb(62, 255, 255, 255),
+            Color.FromArgb(72, 20, 10, 18),
+            90f);
+        graphics.FillPath(wash, clipPath);
+        graphics.Clip = previousClip;
+    }
+
+    private void CaptureBlurredBackdrop(Rectangle dockSurface, DockMetrics metrics)
+    {
+        if (!IsHandleCreated || dockSurface.Width <= 0 || dockSurface.Height <= 0)
+        {
+            return;
+        }
+
+        _isCapturingBackdrop = true;
+        Bitmap? capture = null;
+        try
+        {
+            var screenRect = RectangleToScreen(dockSurface);
+            var oldDisplayAffinity = 0u;
+            _ = NativeMethods.GetWindowDisplayAffinity(Handle, out oldDisplayAffinity);
+            _ = NativeMethods.SetWindowDisplayAffinity(Handle, WDA_EXCLUDEFROMCAPTURE);
+            NativeMethods.RedrawWindow(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+
+            capture = new Bitmap(screenRect.Width, screenRect.Height, PixelFormat.Format32bppPArgb);
+            using (var captureGraphics = Graphics.FromImage(capture))
+            {
+                captureGraphics.CopyFromScreen(screenRect.Left, screenRect.Top, 0, 0, screenRect.Size, CopyPixelOperation.SourceCopy);
+            }
+
+            _ = NativeMethods.SetWindowDisplayAffinity(Handle, oldDisplayAffinity);
+
+            var scale = Math.Clamp(0.28f / metrics.DpiScale, 0.12f, 0.26f);
+            var smallWidth = Math.Max(64, (int)Math.Round(capture.Width * scale));
+            var smallHeight = Math.Max(18, (int)Math.Round(capture.Height * scale));
+            using var small = new Bitmap(smallWidth, smallHeight, PixelFormat.Format32bppPArgb);
+            using (var smallGraphics = Graphics.FromImage(small))
+            {
+                smallGraphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                smallGraphics.DrawImage(capture, new Rectangle(0, 0, small.Width, small.Height));
+            }
+
+            BlurBitmap(small, Math.Max(4, Scale(10, metrics.DpiScale) / 2), passes: 3);
+
+            var blurred = new Bitmap(capture.Width, capture.Height, PixelFormat.Format32bppPArgb);
+            using (var blurredGraphics = Graphics.FromImage(blurred))
+            {
+                blurredGraphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                blurredGraphics.DrawImage(small, new Rectangle(0, 0, blurred.Width, blurred.Height));
+            }
+
+            _blurredBackdrop?.Dispose();
+            _blurredBackdrop = blurred;
+            _blurredBackdropSurface = dockSurface;
+            _blurredBackdropCapturedAt = DateTime.UtcNow;
+        }
+        catch (Exception exception)
+        {
+            _diagnostics.Error(exception, "Capturing dock blur backdrop failed.");
+        }
+        finally
+        {
+            capture?.Dispose();
+            _ = NativeMethods.SetWindowDisplayAffinity(Handle, WDA_NONE);
+            _isCapturingBackdrop = false;
+        }
+    }
+
+    private static void BlurBitmap(Bitmap bitmap, int radius, int passes)
+    {
+        if (radius <= 0)
+        {
+            return;
+        }
+
+        var rectangle = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        var data = bitmap.LockBits(rectangle, ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
+        try
+        {
+            var bytes = Math.Abs(data.Stride) * bitmap.Height;
+            var source = new byte[bytes];
+            var target = new byte[bytes];
+            Marshal.Copy(data.Scan0, source, 0, bytes);
+
+            for (var pass = 0; pass < passes; pass++)
+            {
+                BoxBlurHorizontal(source, target, bitmap.Width, bitmap.Height, data.Stride, radius);
+                BoxBlurVertical(target, source, bitmap.Width, bitmap.Height, data.Stride, radius);
+            }
+
+            Marshal.Copy(source, 0, data.Scan0, bytes);
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+    }
+
+    private static void BoxBlurHorizontal(byte[] source, byte[] target, int width, int height, int stride, int radius)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            var row = y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                var blue = 0;
+                var green = 0;
+                var red = 0;
+                var alpha = 0;
+                var count = 0;
+                for (var sampleX = Math.Max(0, x - radius); sampleX <= Math.Min(width - 1, x + radius); sampleX++)
+                {
+                    var offset = row + (sampleX * 4);
+                    blue += source[offset];
+                    green += source[offset + 1];
+                    red += source[offset + 2];
+                    alpha += source[offset + 3];
+                    count++;
+                }
+
+                var destination = row + (x * 4);
+                target[destination] = (byte)(blue / count);
+                target[destination + 1] = (byte)(green / count);
+                target[destination + 2] = (byte)(red / count);
+                target[destination + 3] = (byte)(alpha / count);
+            }
+        }
+    }
+
+    private static void BoxBlurVertical(byte[] source, byte[] target, int width, int height, int stride, int radius)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var blue = 0;
+                var green = 0;
+                var red = 0;
+                var alpha = 0;
+                var count = 0;
+                for (var sampleY = Math.Max(0, y - radius); sampleY <= Math.Min(height - 1, y + radius); sampleY++)
+                {
+                    var offset = (sampleY * stride) + (x * 4);
+                    blue += source[offset];
+                    green += source[offset + 1];
+                    red += source[offset + 2];
+                    alpha += source[offset + 3];
+                    count++;
+                }
+
+                var destination = (y * stride) + (x * 4);
+                target[destination] = (byte)(blue / count);
+                target[destination + 1] = (byte)(green / count);
+                target[destination + 2] = (byte)(red / count);
+                target[destination + 3] = (byte)(alpha / count);
+            }
+        }
+    }
 
     private void DrawFallbackItems(Graphics graphics, DockMetrics metrics, ref int x, int y, bool interactive, int skip = 0, int? take = null)
     {
@@ -596,14 +1032,16 @@ public sealed class NativeDockForm : Form
         }
     }
 
-    private int DrawItems(Graphics graphics, IEnumerable<DockItemViewModel> items, DockMetrics metrics, ref int x, int y, bool pinned)
+    private int DrawItems(Graphics graphics, IEnumerable<DockItemViewModel> items, DockMetrics metrics, ref int x, int y, bool pinned, ref int appIndex)
     {
         var count = 0;
         foreach (var item in items.Take(pinned ? 8 : 4))
         {
+            DrawDropSlotIfNeeded(graphics, metrics, ref x, y, appIndex);
             var bounds = new Rectangle(x, y, metrics.IconSlot, metrics.IconSlot);
-            _hitTargets.Add(new DockHitTarget(bounds, item, _hitTargets.Count));
-            DrawIcon(graphics, item, Centered(bounds, metrics.IconSize));
+            var target = new DockHitTarget(bounds, item, _hitTargets.Count);
+            _hitTargets.Add(target);
+            DrawIcon(graphics, item, ApplyPressedVisual(graphics, Centered(bounds, metrics.IconSize), metrics, IsPressedVisual(target)));
             if (item.IsRunning || !pinned)
             {
                 using var indicator = new SolidBrush(Color.FromArgb(255, 10, 132, 255));
@@ -612,6 +1050,7 @@ public sealed class NativeDockForm : Form
 
             x += metrics.IconSlot + metrics.ItemGap;
             count++;
+            appIndex++;
         }
 
         return count;
@@ -629,6 +1068,24 @@ public sealed class NativeDockForm : Form
         DrawFallbackAppIcon(graphics, bounds, ColorFromName(item.DisplayName), GlyphFromName(item.DisplayName));
     }
 
+    private static Rectangle ApplyPressedVisual(Graphics graphics, Rectangle bounds, DockMetrics metrics, bool isPressed)
+    {
+        if (!isPressed)
+        {
+            return bounds;
+        }
+
+        var glowBounds = Rectangle.Inflate(bounds, Scale(7, metrics.DpiScale), Scale(7, metrics.DpiScale));
+        using var glowPath = RoundedRect(glowBounds, Math.Max(14, glowBounds.Width / 5));
+        using var glow = new PathGradientBrush(glowPath)
+        {
+            CenterColor = Color.FromArgb(150, 255, 255, 255),
+            SurroundColors = [Color.FromArgb(0, 255, 255, 255)]
+        };
+        graphics.FillPath(glow, glowPath);
+        return Rectangle.Inflate(bounds, -Scale(3, metrics.DpiScale), -Scale(3, metrics.DpiScale));
+    }
+
     private static Rectangle Centered(Rectangle outer, int size)
     {
         return new Rectangle(outer.Left + ((outer.Width - size) / 2), outer.Top + ((outer.Height - size) / 2), size, size);
@@ -642,6 +1099,41 @@ public sealed class NativeDockForm : Form
         graphics.FillPath(brush, path);
         graphics.DrawPath(pen, path);
         DrawSystemGlyph(graphics, bounds, glyph);
+    }
+
+    private static void DrawHomeIcon(Graphics graphics, Rectangle bounds, DockMetrics metrics)
+    {
+        using var path = RoundedRect(bounds, Math.Max(12, bounds.Width / 5));
+        using var brush = new LinearGradientBrush(
+            bounds,
+            Color.FromArgb(255, 255, 183, 77),
+            Color.FromArgb(255, 255, 112, 67),
+            90f);
+        using var pen = new Pen(Color.FromArgb(96, 255, 255, 255), Math.Max(1f, metrics.DpiScale));
+        graphics.FillPath(brush, path);
+        graphics.DrawPath(pen, path);
+
+        var unit = bounds.Width / 100f;
+        using var roofBrush = new SolidBrush(Color.White);
+        using var bodyBrush = new SolidBrush(Color.FromArgb(238, 255, 255, 255));
+        var roof = new[]
+        {
+            new PointF(bounds.Left + (20 * unit), bounds.Top + (51 * unit)),
+            new PointF(bounds.Left + (50 * unit), bounds.Top + (25 * unit)),
+            new PointF(bounds.Left + (80 * unit), bounds.Top + (51 * unit)),
+            new PointF(bounds.Left + (72 * unit), bounds.Top + (51 * unit)),
+            new PointF(bounds.Left + (72 * unit), bounds.Top + (76 * unit)),
+            new PointF(bounds.Left + (28 * unit), bounds.Top + (76 * unit)),
+            new PointF(bounds.Left + (28 * unit), bounds.Top + (51 * unit))
+        };
+        graphics.FillPolygon(roofBrush, roof);
+        using var doorPath = RoundedRect(
+            Rectangle.Round(new RectangleF(bounds.Left + (43 * unit), bounds.Top + (55 * unit), 14 * unit, 21 * unit)),
+            Math.Max(2, (int)(4 * unit)));
+        using var doorBrush = new SolidBrush(Color.FromArgb(255, 255, 145, 48));
+        graphics.FillPath(doorBrush, doorPath);
+        using var bodyPen = new Pen(Color.FromArgb(56, 70, 38, 18), Math.Max(1f, metrics.DpiScale));
+        graphics.DrawPolygon(bodyPen, roof);
     }
 
     private static void DrawSystemGlyph(Graphics graphics, Rectangle bounds, SystemGlyph glyph)
@@ -899,6 +1391,7 @@ public sealed class NativeDockForm : Form
             _refreshTimer.Dispose();
             _visibilityTimer.Dispose();
             _animationTimer.Dispose();
+            _blurredBackdrop?.Dispose();
             foreach (var image in _iconCache.Values)
             {
                 image.Dispose();
@@ -909,10 +1402,18 @@ public sealed class NativeDockForm : Form
     }
 
     private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private static readonly DockItemViewModel HomeDockItem = new(new AppEntry("coredesk-home", "Home", AppKind.SystemAction), false);
     private static readonly Color TransparencyKeyColor = Color.FromArgb(1, 2, 3);
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_TOPMOST = 0x00000008;
     private const uint SWP_SHOWWINDOW = 0x0040;
+    private const int SW_RESTORE = 9;
+    private const int SW_MINIMIZE = 6;
+    private const uint WDA_NONE = 0x00000000;
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    private const uint RDW_INVALIDATE = 0x0001;
+    private const uint RDW_UPDATENOW = 0x0100;
+    private const uint RDW_ALLCHILDREN = 0x0080;
     private const int DWMWA_USE_HOSTBACKDROPBRUSH = 17;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     private const int DWMWA_BORDER_COLOR = 34;
@@ -959,7 +1460,7 @@ public sealed class NativeDockForm : Form
         int ScreenInset,
         int SideShadow);
 
-    private sealed record DockHitTarget(Rectangle Bounds, DockItemViewModel Item, int Index);
+    private sealed record DockHitTarget(Rectangle Bounds, DockItemViewModel Item, int Index, bool IsHome = false);
 
     private enum SystemGlyph
     {
@@ -976,8 +1477,13 @@ public sealed class NativeDockForm : Form
 
     private static class NativeMethods
     {
+        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
@@ -989,7 +1495,31 @@ public sealed class NativeDockForm : Form
         public static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
 
         [DllImport("user32.dll")]
+        public static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
         public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint dwAffinity);
+
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint dwAffinity);
+
+        [DllImport("user32.dll")]
+        public static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
 
         [DllImport("dwmapi.dll")]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);

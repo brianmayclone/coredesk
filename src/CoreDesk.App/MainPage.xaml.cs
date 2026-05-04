@@ -3,6 +3,7 @@ using CoreDesk.Abstractions.Models;
 using CoreDesk.Application.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.ComponentModel;
 using Windows.ApplicationModel.DataTransfer;
@@ -113,6 +114,36 @@ public sealed partial class MainPage : Page
         e.Data.RequestedOperation = DataPackageOperation.Move;
         e.Data.Properties.Title = app.DisplayName;
         e.Data.SetText($"coredesk-app:{app.Id}");
+    }
+
+    private void OnTilePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element)
+        {
+            return;
+        }
+
+        element.Opacity = 0.76;
+        element.RenderTransform = new ScaleTransform
+        {
+            ScaleX = 0.94,
+            ScaleY = 0.94
+        };
+    }
+
+    private void OnTilePointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element)
+        {
+            return;
+        }
+
+        element.Opacity = 1;
+        element.RenderTransform = new ScaleTransform
+        {
+            ScaleX = 1,
+            ScaleY = 1
+        };
     }
 
     private void OnFolderTapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)

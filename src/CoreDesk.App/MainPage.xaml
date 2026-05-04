@@ -123,6 +123,10 @@
                             Height="174"
                             Padding="8"
                             Spacing="10"
+                            PointerPressed="OnTilePointerPressed"
+                            PointerReleased="OnTilePointerReleased"
+                            PointerExited="OnTilePointerReleased"
+                            RenderTransformOrigin="0.5,0.45"
                             AutomationProperties.Name="{x:Bind DisplayName, Mode=OneWay}">
                             <Border
                                 Width="108"
@@ -255,6 +259,10 @@
                                 Width="154"
                                 Height="158"
                                 Padding="8"
+                                PointerPressed="OnTilePointerPressed"
+                                PointerReleased="OnTilePointerReleased"
+                                PointerExited="OnTilePointerReleased"
+                                RenderTransformOrigin="0.5,0.45"
                                 Spacing="8">
                                 <Border
                                     Width="96"
@@ -313,7 +321,15 @@
                         SelectionMode="None">
                         <GridView.ItemTemplate>
                             <DataTemplate x:DataType="models:AppEntry">
-                                <StackPanel Width="136" Height="146" Padding="8" Spacing="8">
+                                <StackPanel
+                                    Width="136"
+                                    Height="146"
+                                    Padding="8"
+                                    Spacing="8"
+                                    PointerPressed="OnTilePointerPressed"
+                                    PointerReleased="OnTilePointerReleased"
+                                    PointerExited="OnTilePointerReleased"
+                                    RenderTransformOrigin="0.5,0.45">
                                     <Border
                                         Width="86"
                                         Height="86"
