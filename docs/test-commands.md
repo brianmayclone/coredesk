@@ -27,6 +27,16 @@ $env:COREDESK_APP_ARGS='--diagnostics --safe-mode --language en'
 
 Use `--mock-hardware` only for deterministic mock-service checks, not for visual acceptance screenshots.
 
+## Session Shell Replacement Test
+
+This mode is closer to Cairo-style shell replacement testing without permanently changing `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell`. It stops Explorer shell surfaces for the current run and restarts Explorer when CoreDesk exits.
+
+```powershell
+dotnet run --project src\CoreDesk.App\CoreDesk.App.csproj -p:Platform=x64 -- --diagnostics --replace-explorer-for-session --language en
+```
+
+Keep a terminal open before running this mode so you have a recovery path if the UI crashes.
+
 Screenshots are written to:
 
 ```text

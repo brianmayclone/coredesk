@@ -1,13 +1,13 @@
 # CoreDesk Architecture
 
-CoreDesk is a WinUI 3 shell overlay for Windows 11 tablets. It does not replace Explorer. It runs as a primary touch surface above the classic desktop and always keeps a recovery path back to Windows.
+CoreDesk is a WinUI 3 touch shell for Windows 11 tablets. It can run as a safe overlay above Explorer, and it has an opt-in session shell replacement test mode that stops Explorer for the current run without changing the user's Winlogon shell registry value.
 
 ## Projects
 
 - `CoreDesk.App`: WinUI 3 host, shell UI, fullscreen window, XAML resources.
 - `CoreDesk.Abstractions`: domain models and service contracts.
 - `CoreDesk.Application`: shell state, commands, localization, mode orchestration.
-- `CoreDesk.Windows`: Windows-specific app discovery, launching, hardware and taskbar/tray integration.
+- `CoreDesk.Windows`: Windows-specific app discovery, launching, hardware, taskbar/tray, and shell replacement integration.
 - `CoreDesk.Persistence`: JSON configuration and layout storage with backups.
 - `CoreDesk.Tests`: unit tests for non-UI behavior.
 
@@ -17,7 +17,8 @@ CoreDesk is a WinUI 3 shell overlay for Windows 11 tablets. It does not replace 
 - Runtime: .NET 9.
 - Languages: English and German from day one.
 - Persisted storage: JSON first, SQLite optional later.
-- Taskbar: actively hidden in touch mode and restored in desktop/recovery paths.
+- Taskbar: actively hidden in overlay mode and restored in desktop/recovery paths.
+- Session shell replacement: `--replace-explorer-for-session` stops Explorer shell surfaces for the current run, signals shell readiness when available, and restarts Explorer when CoreDesk exits.
 - Tray: required MVP surface, with richer commands to follow.
 - Safety: `Esc` restores the taskbar and closes the overlay.
 
@@ -31,4 +32,3 @@ CoreDesk is a WinUI 3 shell overlay for Windows 11 tablets. It does not replace 
 6. Settings and persisted preferences.
 7. Hardware driven touch/desktop mode switching.
 8. Installer, autostart and diagnostics.
-
