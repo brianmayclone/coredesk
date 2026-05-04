@@ -27,7 +27,7 @@ public sealed class AppIconContextMenuActionRequestedEventArgs(
 public sealed partial class AppIconContextMenu : UserControl
 {
     private const double BaseMenuWidth = 302;
-    private const double BaseMenuHeight = 330;
+    private const double BaseMenuHeight = 232;
 
     private AppEntry? _app;
 
@@ -42,18 +42,11 @@ public sealed partial class AppIconContextMenu : UserControl
 
     public event EventHandler? Closed;
 
-    public string DisplayName { get; private set; } = string.Empty;
-
-    public string? IconPath { get; private set; }
-
     public bool IsOpen => Visibility == Visibility.Visible;
 
     public void ShowFor(FrameworkElement anchor, AppEntry app, double uiScale)
     {
         _app = app;
-        DisplayName = app.DisplayName;
-        IconPath = app.IconPath;
-        Bindings.Update();
 
         Visibility = Visibility.Visible;
         Opacity = 0;
@@ -64,7 +57,6 @@ public sealed partial class AppIconContextMenu : UserControl
 
         var anchorTopLeft = anchor.TransformToVisual(this).TransformPoint(new Point(0, 0));
         var anchorWidth = Math.Max(anchor.ActualWidth, 108);
-        var anchorHeight = Math.Max(anchor.ActualHeight, 108);
         var menuWidth = BaseMenuWidth * scale;
         var menuHeight = BaseMenuHeight * scale;
         var parent = Parent as FrameworkElement;

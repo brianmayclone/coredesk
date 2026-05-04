@@ -16,7 +16,10 @@ public sealed partial class MainPage : Page
     private readonly DispatcherTimer _clock = new();
     private readonly DispatcherTimer _appRefresh = new();
     private readonly DispatcherTimer _dragPageSwitch = new();
+    private readonly DispatcherTimer _homeTileHoldTimer = new();
     private Windows.Foundation.Point? _rootPointerStart;
+    private Windows.Foundation.Point? _homeTileHoldStart;
+    private FrameworkElement? _pendingHomeTileHoldElement;
     private int _pendingDragPageDirection;
     private int _blockedDragPageDirection;
     private int _lastPageIndex;
@@ -26,9 +29,12 @@ public sealed partial class MainPage : Page
     private string? _draggedWidgetId;
     private int _lastWidgetDragColumn;
     private int _lastWidgetDragRow;
+    private bool _isFolderClosing;
+    private bool _isFolderVisuallyOpen;
     private bool _createdPageDuringCurrentDrag;
     private bool _homeInitializationCompleted;
     private bool _suppressNextHomeTileTap;
+    private bool _homeTileHoldOpened;
 
     public ShellViewModel ViewModel { get; } = App.ShellViewModel;
 
@@ -38,7 +44,11 @@ public sealed partial class MainPage : Page
         DataContext = ViewModel;
         HomeGrid.RenderTransform = new TranslateTransform();
         WidgetsStrip.LayoutUpdated += OnWidgetsStripLayoutUpdated;
-        HomeAppContextMenu.Closed += (_, _) => _suppressNextHomeTileTap = false;
+        HomeAppContextMenu.Closed += (_, _) =>
+        {
+            _suppressNextHomeTileTap = false;
+            _homeTileHoldOpened = false;
+        };
         Loaded += OnLoaded;
         AddHandler(PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         AddHandler(PointerReleasedEvent, new PointerEventHandler(OnRootPointerReleased), true);
@@ -54,6 +64,9 @@ public sealed partial class MainPage : Page
 
         _dragPageSwitch.Interval = TimeSpan.FromMilliseconds(650);
         _dragPageSwitch.Tick += OnDragPageSwitchTick;
+
+        _homeTileHoldTimer.Interval = TimeSpan.FromMilliseconds(550);
+        _homeTileHoldTimer.Tick += OnHomeTileHoldTimerTick;
 
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
     }
@@ -143,8 +156,7 @@ public sealed partial class MainPage : Page
         {
             if (ReferenceEquals(sender, FolderGrid))
             {
-                ViewModel.CloseFolderCommand.Execute(null);
-                Bindings.Update();
+                await CloseFolderAnimatedAsync();
             }
 
             await ViewModel.LaunchAppCommand.ExecuteAsync(app);
@@ -182,6 +194,7 @@ public sealed partial class MainPage : Page
     private void OnHomeTileRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         e.Handled = true;
+        StopHomeTileHoldTimer();
         ShowHomeTileContextMenu(sender as FrameworkElement);
     }
 
@@ -193,7 +206,69 @@ public sealed partial class MainPage : Page
         }
 
         e.Handled = true;
+        StopHomeTileHoldTimer();
         ShowHomeTileContextMenu(sender as FrameworkElement);
+    }
+
+    private void OnHomeTilePointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        OnTilePointerPressed(sender, e);
+
+        if (sender is not FrameworkElement { DataContext: HomeTileViewModel { App: not null } } element)
+        {
+            return;
+        }
+
+        _pendingHomeTileHoldElement = element;
+        _homeTileHoldStart = e.GetCurrentPoint(Root).Position;
+        _homeTileHoldOpened = false;
+        _homeTileHoldTimer.Stop();
+        _homeTileHoldTimer.Start();
+    }
+
+    private void OnHomeTilePointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_homeTileHoldStart is null || _pendingHomeTileHoldElement is null)
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(Root).Position;
+        var deltaX = point.X - _homeTileHoldStart.Value.X;
+        var deltaY = point.Y - _homeTileHoldStart.Value.Y;
+        if (Math.Sqrt((deltaX * deltaX) + (deltaY * deltaY)) > 12)
+        {
+            StopHomeTileHoldTimer();
+        }
+    }
+
+    private void OnHomeTilePointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        OnTilePointerReleased(sender, e);
+        StopHomeTileHoldTimer();
+    }
+
+    private void OnHomeTilePointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        OnTilePointerReleased(sender, e);
+        if (!_homeTileHoldOpened)
+        {
+            StopHomeTileHoldTimer();
+        }
+    }
+
+    private void OnHomeTileHoldTimerTick(object? sender, object e)
+    {
+        _homeTileHoldTimer.Stop();
+        _homeTileHoldOpened = true;
+        ShowHomeTileContextMenu(_pendingHomeTileHoldElement);
+    }
+
+    private void StopHomeTileHoldTimer()
+    {
+        _homeTileHoldTimer.Stop();
+        _homeTileHoldStart = null;
+        _pendingHomeTileHoldElement = null;
     }
 
     private void ShowHomeTileContextMenu(FrameworkElement? element)
@@ -203,6 +278,8 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        StopHomeTileHoldTimer();
+        _homeTileHoldOpened = true;
         _suppressNextHomeTileTap = true;
         ResetTilePressedVisual(element);
         HomeAppContextMenu.ShowFor(element, app, ViewModel.UiScale);
@@ -269,6 +346,12 @@ public sealed partial class MainPage : Page
 
     private void OnHomeTileDragStarting(UIElement sender, DragStartingEventArgs args)
     {
+        if (_homeTileHoldOpened || HomeAppContextMenu.IsOpen)
+        {
+            args.Cancel = true;
+            return;
+        }
+
         if ((sender as FrameworkElement)?.DataContext is not HomeTileViewModel tile)
         {
             args.Cancel = true;
@@ -690,15 +773,19 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private void OnFolderBackdropTapped(object sender, TappedRoutedEventArgs e)
+    private async void OnFolderBackdropTapped(object sender, TappedRoutedEventArgs e)
     {
-        ViewModel.CloseFolderCommand.Execute(null);
-        Bindings.Update();
+        await CloseFolderAnimatedAsync();
     }
 
     private void OnFolderPanelTapped(object sender, TappedRoutedEventArgs e)
     {
         e.Handled = true;
+    }
+
+    private async void OnCloseFolderClick(object sender, RoutedEventArgs e)
+    {
+        await CloseFolderAnimatedAsync();
     }
 
     public void OpenSettings()
@@ -740,6 +827,18 @@ public sealed partial class MainPage : Page
 
         if (e.PropertyName is nameof(ViewModel.IsControlCenterOpen) or nameof(ViewModel.IsTaskSwitcherOpen) or nameof(ViewModel.IsDrawerOpen) or nameof(ViewModel.IsSettingsOpen) or nameof(ViewModel.IsFolderOpen))
         {
+            if (e.PropertyName == nameof(ViewModel.IsFolderOpen))
+            {
+                if (ViewModel.IsFolderOpen)
+                {
+                    ShowFolderAnimated();
+                }
+                else if (_isFolderVisuallyOpen && !_isFolderClosing)
+                {
+                    _ = HideFolderAnimatedAsync();
+                }
+            }
+
             var isHomescreenOnly = !ViewModel.IsControlCenterOpen
                 && !ViewModel.IsTaskSwitcherOpen
                 && !ViewModel.IsDrawerOpen
@@ -749,6 +848,76 @@ public sealed partial class MainPage : Page
             App.ShowDockWhenReady(homeMode: isHomescreenOnly);
         }
 
+    }
+
+    private void ShowFolderAnimated()
+    {
+        _isFolderClosing = false;
+        _isFolderVisuallyOpen = true;
+        FolderOverlay.Visibility = Visibility.Visible;
+        FolderOverlay.Opacity = 0;
+        FolderPanel.Opacity = 0;
+        FolderPanelScale.ScaleX = 0.92;
+        FolderPanelScale.ScaleY = 0.92;
+
+        var storyboard = new Storyboard();
+        AddDoubleAnimation(storyboard, FolderOverlay, "Opacity", 1, 150);
+        AddDoubleAnimation(storyboard, FolderPanel, "Opacity", 1, 190);
+        AddDoubleAnimation(storyboard, FolderPanelScale, "ScaleX", 1, 220);
+        AddDoubleAnimation(storyboard, FolderPanelScale, "ScaleY", 1, 220);
+        storyboard.Begin();
+    }
+
+    private async Task CloseFolderAnimatedAsync()
+    {
+        if (_isFolderClosing)
+        {
+            return;
+        }
+
+        _isFolderClosing = true;
+        await HideFolderAnimatedAsync();
+        ViewModel.CloseFolderCommand.Execute(null);
+        Bindings.Update();
+        _isFolderClosing = false;
+    }
+
+    private Task HideFolderAnimatedAsync()
+    {
+        if (!_isFolderVisuallyOpen || FolderOverlay.Visibility != Visibility.Visible)
+        {
+            FolderOverlay.Visibility = Visibility.Collapsed;
+            _isFolderVisuallyOpen = false;
+            return Task.CompletedTask;
+        }
+
+        var completion = new TaskCompletionSource();
+        var storyboard = new Storyboard();
+        AddDoubleAnimation(storyboard, FolderOverlay, "Opacity", 0, 145);
+        AddDoubleAnimation(storyboard, FolderPanel, "Opacity", 0, 135);
+        AddDoubleAnimation(storyboard, FolderPanelScale, "ScaleX", 0.94, 160);
+        AddDoubleAnimation(storyboard, FolderPanelScale, "ScaleY", 0.94, 160);
+        storyboard.Completed += (_, _) =>
+        {
+            FolderOverlay.Visibility = Visibility.Collapsed;
+            _isFolderVisuallyOpen = false;
+            completion.TrySetResult();
+        };
+        storyboard.Begin();
+        return completion.Task;
+    }
+
+    private static void AddDoubleAnimation(Storyboard storyboard, DependencyObject target, string propertyPath, double to, double durationMilliseconds)
+    {
+        var animation = new DoubleAnimation
+        {
+            To = to,
+            Duration = TimeSpan.FromMilliseconds(durationMilliseconds),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, propertyPath);
+        storyboard.Children.Add(animation);
     }
 
     private void AnimateHomePageTransition()

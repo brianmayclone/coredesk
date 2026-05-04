@@ -33,6 +33,10 @@ public sealed partial class ShellViewModel(
     private readonly LayoutService _layoutService = new();
     private DisplayMetrics _displayMetrics = new(1920, 1080, 96, 96, null, null);
     private double _viewportWidth = 1920;
+    private CancellationTokenSource? _appDiscoveryCancellation;
+    private TaskScheduler? _uiTaskScheduler;
+    private int _appDiscoveryGeneration;
+    private bool _allowDefaultLayoutRebuildDuringDiscovery;
 
     public ObservableCollection<AppEntry> HomeApps { get; } = [];
 
@@ -190,14 +194,13 @@ public sealed partial class ShellViewModel(
         diagnostics.Info($"Primary display: {_displayMetrics.PixelWidth}x{_displayMetrics.PixelHeight}px at {_displayMetrics.DpiX:0.#}x{_displayMetrics.DpiY:0.#} DPI, diagonal {diagonalLabel} inches.");
         ApplyAdaptiveSizing();
 
-        _allApps = [.. (await appDiscovery.DiscoverAppsAsync(cancellationToken)).OrderBy(app => app.DisplayName)];
         _layout = await configurationStore.LoadLayoutAsync(cancellationToken);
-        _defaultLayoutBuilder.EnsureDefaultLayout(_layout, _allApps);
-        await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+        _allowDefaultLayoutRebuildDuringDiscovery = !HasLayoutReferences(_layout);
         CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, PageCount - 1);
         CurrentMode = shellModeService.CurrentMode;
         RefreshStatus();
         await RefreshAppCollectionsAsync(cancellationToken);
+        _uiTaskScheduler = TryGetCurrentTaskScheduler();
 
         shellModeService.ModeChanged += (_, mode) =>
         {
@@ -216,6 +219,7 @@ public sealed partial class ShellViewModel(
         OnPropertyChanged(nameof(DpiSummary));
         OnPropertyChanged(nameof(PageCount));
         RefreshPageIndicators();
+        _ = RunAppDiscoveryRefreshAsync(cancellationToken);
     }
 
     public void UpdateViewport(double width, double height)
@@ -512,21 +516,116 @@ public sealed partial class ShellViewModel(
 
     public async Task RefreshInstalledAppsAsync(CancellationToken cancellationToken = default)
     {
-        List<AppEntry> discovered = [.. (await appDiscovery.DiscoverAppsAsync(cancellationToken)).OrderBy(app => app.DisplayName)];
-        var oldIds = _allApps.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var newIds = discovered.Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (oldIds.SetEquals(newIds))
+        await RunAppDiscoveryRefreshAsync(cancellationToken);
+    }
+
+    private async Task RunAppDiscoveryRefreshAsync(CancellationToken cancellationToken = default)
+    {
+        var generation = Interlocked.Increment(ref _appDiscoveryGeneration);
+        var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var previousCancellation = Interlocked.Exchange(ref _appDiscoveryCancellation, refreshCancellation);
+        previousCancellation?.Cancel();
+
+        try
         {
-            await RefreshRunningAppsAsync(cancellationToken);
+            await Task.Run(async () =>
+            {
+                var token = refreshCancellation.Token;
+                var batch = new List<AppEntry>();
+                var lastPublish = DateTime.UtcNow;
+
+                await foreach (var app in appDiscovery.DiscoverAppsIncrementalAsync(token))
+                {
+                    token.ThrowIfCancellationRequested();
+                    batch.Add(app);
+
+                    if (batch.Count >= 10 || DateTime.UtcNow - lastPublish >= TimeSpan.FromMilliseconds(180))
+                    {
+                        await PublishDiscoveredAppsAsync(batch, isComplete: false, generation, token);
+                        lastPublish = DateTime.UtcNow;
+                    }
+                }
+
+                await PublishDiscoveredAppsAsync(batch, isComplete: true, generation, token);
+            }, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            diagnostics.Error(exception, "Background app discovery failed.");
+        }
+        finally
+        {
+            if (ReferenceEquals(_appDiscoveryCancellation, refreshCancellation))
+            {
+                _appDiscoveryCancellation = null;
+            }
+
+            refreshCancellation.Dispose();
+        }
+    }
+
+    private Task PublishDiscoveredAppsAsync(List<AppEntry> batch, bool isComplete, int generation, CancellationToken cancellationToken)
+    {
+        if (batch.Count == 0 && !isComplete)
+        {
+            return Task.CompletedTask;
+        }
+
+        var apps = batch.ToList();
+        batch.Clear();
+        return RunOnUiAsync(() => ApplyDiscoveredAppsAsync(apps, isComplete, generation, cancellationToken), cancellationToken);
+    }
+
+    private async Task ApplyDiscoveredAppsAsync(IReadOnlyList<AppEntry> discovered, bool isComplete, int generation, CancellationToken cancellationToken)
+    {
+        if (generation != _appDiscoveryGeneration)
+        {
             return;
         }
 
-        _allApps = discovered;
-        _defaultLayoutBuilder.EnsureDefaultLayout(_layout, _allApps);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (discovered.Count > 0)
+        {
+            var appsById = _allApps.ToDictionary(app => app.Id, StringComparer.OrdinalIgnoreCase);
+            foreach (var app in discovered)
+            {
+                appsById[app.Id] = app;
+            }
+
+            _allApps = [.. appsById.Values.OrderBy(app => app.DisplayName)];
+        }
+
+        if (_allowDefaultLayoutRebuildDuringDiscovery || isComplete)
+        {
+            _defaultLayoutBuilder.EnsureDefaultLayout(_layout, _allApps);
+        }
+
+        CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, PageCount - 1);
         await RefreshAppCollectionsAsync(cancellationToken);
-        await RefreshRunningAppsAsync(cancellationToken);
         OnPropertyChanged(nameof(AppCountLabel));
-        diagnostics.Info($"App index refreshed. Apps: {_allApps.Count}");
+        OnPropertyChanged(nameof(PageCount));
+        RefreshPageIndicators();
+
+        if (isComplete)
+        {
+            await configurationStore.SaveLayoutAsync(_layout, cancellationToken);
+            _allowDefaultLayoutRebuildDuringDiscovery = false;
+            diagnostics.Info($"App index refreshed in background. Apps: {_allApps.Count}");
+        }
+    }
+
+    private Task RunOnUiAsync(Func<Task> action, CancellationToken cancellationToken)
+    {
+        var scheduler = _uiTaskScheduler;
+        if (scheduler is null)
+        {
+            return action();
+        }
+
+        return Task.Factory.StartNew(action, cancellationToken, TaskCreationOptions.DenyChildAttach, scheduler).Unwrap();
     }
 
     public async Task AddAppToDockAsync(string appId, int? targetIndex = null, CancellationToken cancellationToken = default)
@@ -1049,5 +1148,24 @@ public sealed partial class ShellViewModel(
         return !string.IsNullOrWhiteSpace(executableName)
             && (executableName.StartsWith("CoreDesk.", StringComparison.OrdinalIgnoreCase)
                 || executableName.Equals("CoreDesk", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static TaskScheduler? TryGetCurrentTaskScheduler()
+    {
+        try
+        {
+            return TaskScheduler.FromCurrentSynchronizationContext();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static bool HasLayoutReferences(HomeLayout layout)
+    {
+        return layout.Pages.SelectMany(page => page.Tiles).Any(tile => !string.IsNullOrWhiteSpace(tile.AppId) || !string.IsNullOrWhiteSpace(tile.FolderId))
+            || layout.DockAppIds.Count > 0
+            || layout.Folders.Any(folder => folder.AppIds.Count > 0);
     }
 }

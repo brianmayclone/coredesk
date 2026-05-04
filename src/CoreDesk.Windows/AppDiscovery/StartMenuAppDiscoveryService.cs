@@ -1,6 +1,7 @@
 using CoreDesk.Abstractions.Models;
 using CoreDesk.Abstractions.Services;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace CoreDesk.Windows.AppDiscovery;
 
@@ -12,14 +13,42 @@ public sealed class StartMenuAppDiscoveryService : IAppDiscoveryService
     {
         var entries = new Dictionary<string, AppEntry>(StringComparer.OrdinalIgnoreCase);
 
+        await foreach (var app in DiscoverAppsIncrementalAsync(cancellationToken))
+        {
+            entries.TryAdd(app.Id, app);
+        }
+
+        return [.. entries.Values.OrderBy(entry => entry.DisplayName)];
+    }
+
+    public async IAsyncEnumerable<AppEntry> DiscoverAppsIncrementalAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var entries = new Dictionary<string, AppEntry>(StringComparer.OrdinalIgnoreCase);
+        var yieldedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         AddSystemAction(entries, "desktop", "Desktop");
         AddSystemAction(entries, "settings", "Settings");
         AddSystemAction(entries, "explorer", "File Explorer", "explorer.exe");
+        foreach (var app in entries.Values.OrderBy(entry => entry.DisplayName))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yieldedIds.Add(app.Id);
+            yield return app;
+        }
+
         AddKnownExecutable(entries, "notepad", "Notepad", "notepad.exe");
         AddKnownExecutable(entries, "calculator", "Calculator", "calc.exe");
         AddKnownExecutable(entries, "paint", "Paint", "mspaint.exe");
         AddKnownExecutable(entries, "terminal", "Terminal", "wt.exe");
         AddKnownExecutable(entries, "powershell", "PowerShell", "powershell.exe");
+        foreach (var app in entries.Values
+            .Where(app => !yieldedIds.Contains(app.Id) && app.Kind == AppKind.Win32 && app.LaunchPath is null)
+            .OrderBy(entry => entry.DisplayName))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yieldedIds.Add(app.Id);
+            yield return app;
+        }
 
         foreach (var folder in GetStartMenuFolders())
         {
@@ -40,22 +69,28 @@ public sealed class StartMenuAppDiscoveryService : IAppDiscoveryService
                 var id = StableId(shortcut);
                 var resolved = WindowsShortcutResolver.TryResolve(shortcut);
                 var iconPath = _iconCache.GetOrCreateIconPath(id, resolved.TargetPath, shortcut);
-                entries.TryAdd(id, new AppEntry(
+                var app = new AppEntry(
                     id,
                     CleanDisplayName(name),
                     AppKind.Win32,
                     ExecutablePath: resolved.TargetPath ?? shortcut,
                     IconPath: iconPath,
-                    LaunchPath: shortcut));
+                    LaunchPath: shortcut);
+                if (entries.TryAdd(id, app))
+                {
+                    yield return app;
+                }
             }
         }
 
         foreach (var storeApp in await StoreAppDiscoveryService.DiscoverAppsAsync(_iconCache, cancellationToken))
         {
-            entries.TryAdd(storeApp.AppUserModelId ?? storeApp.Id, storeApp);
+            var key = storeApp.AppUserModelId ?? storeApp.Id;
+            if (entries.TryAdd(key, storeApp))
+            {
+                yield return storeApp;
+            }
         }
-
-        return [.. entries.Values.OrderBy(entry => entry.DisplayName)];
     }
 
     private static IEnumerable<string> GetStartMenuFolders()

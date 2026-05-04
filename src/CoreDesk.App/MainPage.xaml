@@ -134,9 +134,10 @@
                             DragStarting="OnHomeTileDragStarting"
                             Spacing="10"
                             Holding="OnHomeTileHolding"
-                            PointerPressed="OnTilePointerPressed"
-                            PointerReleased="OnTilePointerReleased"
-                            PointerExited="OnTilePointerReleased"
+                            PointerPressed="OnHomeTilePointerPressed"
+                            PointerMoved="OnHomeTilePointerMoved"
+                            PointerReleased="OnHomeTilePointerReleased"
+                            PointerExited="OnHomeTilePointerExited"
                             RightTapped="OnHomeTileRightTapped"
                             Tapped="OnHomeTileTapped"
                             RenderTransformOrigin="0.5,0.45"
@@ -334,13 +335,16 @@
         </Grid>
 
         <Grid
+            x:Name="FolderOverlay"
             AutomationProperties.Name="CoreDesk Folder"
+            Opacity="0"
             Tapped="OnFolderBackdropTapped"
-            Visibility="{Binding IsFolderOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            Visibility="Collapsed">
             <Grid.Background>
-                <AcrylicBrush TintColor="#101820" TintOpacity="0.55" TintLuminosityOpacity="0.55" FallbackColor="#AA101820" />
+                <AcrylicBrush TintColor="#101820" TintOpacity="0.28" TintLuminosityOpacity="0.34" FallbackColor="#6A101820" />
             </Grid.Background>
             <Border
+                x:Name="FolderPanel"
                 Width="680"
                 MinHeight="460"
                 Padding="32"
@@ -350,7 +354,12 @@
                 BorderBrush="#66FFFFFF"
                 BorderThickness="1"
                 CornerRadius="38"
+                Opacity="0"
+                RenderTransformOrigin="0.5,0.5"
                 Tapped="OnFolderPanelTapped">
+                <Border.RenderTransform>
+                    <ScaleTransform x:Name="FolderPanelScale" ScaleX="0.92" ScaleY="0.92" />
+                </Border.RenderTransform>
                 <StackPanel Spacing="22">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -358,7 +367,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="{Binding OpenFolderTile.Name}" FontSize="30" FontWeight="SemiBold" Foreground="#FF111820" />
-                        <Button Grid.Column="1" Command="{x:Bind ViewModel.CloseFolderCommand}" AutomationProperties.Name="Close Folder">
+                        <Button Grid.Column="1" Click="OnCloseFolderClick" AutomationProperties.Name="Close Folder">
                             <FontIcon Glyph="&#xE711;" />
                         </Button>
                     </Grid>

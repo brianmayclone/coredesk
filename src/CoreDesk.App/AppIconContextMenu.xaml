@@ -37,51 +37,6 @@
                 </StackPanel.RenderTransform>
 
                 <Border
-                    x:Name="PreviewRoot"
-                    Width="136"
-                    MinHeight="164"
-                    Padding="10"
-                    HorizontalAlignment="Left"
-                    Background="#26FFFFFF"
-                    BorderBrush="#42FFFFFF"
-                    BorderThickness="1"
-                    CornerRadius="28"
-                    Translation="0,0,42">
-                    <Border.Shadow>
-                        <ThemeShadow />
-                    </Border.Shadow>
-                    <StackPanel Spacing="8">
-                        <Border
-                            Width="108"
-                            Height="108"
-                            HorizontalAlignment="Center"
-                            Background="{x:Bind IconPath, Mode=OneWay, Converter={StaticResource IconPathToBrushConverter}}"
-                            CornerRadius="24">
-                            <Grid>
-                                <FontIcon
-                                    Glyph="&#xECAA;"
-                                    FontSize="42"
-                                    Foreground="#EFFFFFFF"
-                                    Visibility="{x:Bind IconPath, Mode=OneWay, Converter={StaticResource IconPathToVisibilityConverter}, ConverterParameter=Invert}" />
-                                <Image
-                                    Source="{x:Bind IconPath, Mode=OneWay, Converter={StaticResource IconPathToImageSourceConverter}}"
-                                    Margin="18"
-                                    Stretch="Uniform"
-                                    Visibility="{x:Bind IconPath, Mode=OneWay, Converter={StaticResource IconPathToVisibilityConverter}}" />
-                            </Grid>
-                        </Border>
-                        <TextBlock
-                            Text="{x:Bind DisplayName, Mode=OneWay}"
-                            TextAlignment="Center"
-                            TextWrapping="Wrap"
-                            MaxLines="2"
-                            FontSize="14"
-                            FontWeight="SemiBold"
-                            Foreground="White" />
-                    </StackPanel>
-                </Border>
-
-                <Border
                     x:Name="MenuPanel"
                     Width="302"
                     Padding="0,6"
